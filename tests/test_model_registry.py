@@ -58,14 +58,13 @@ def reset_registry(monkeypatch):
 
 def test_default_registry_includes_all_models(reset_registry):
     names = {spec.name for spec in model_registry.list_models()}
-    assert "GPT3-dev" in names
-    assert "GPT-2" in names
+    assert names == {"GPT3-dev"}
 
 
 def test_model_allow_list_filters(reset_registry):
-    reset_registry(allow_list=["GPT3-dev", "GPT-2"])
+    reset_registry(allow_list=["GPT3-dev"])
     names = {spec.name for spec in model_registry.list_models()}
-    assert names == {"GPT3-dev", "GPT-2"}
+    assert names == {"GPT3-dev"}
 
 
 def test_model_allow_list_unknown_model(reset_registry):
