@@ -49,12 +49,12 @@ _DEFAULT_MODELS: List[ModelSpec] = [
     #     dtype="float16",
     #     device="auto",
     # ),
-    ModelSpec(
-        name="GPT3-dev",
-        hf_repo="k050506koch/GPT3-dev",  # TODO confirm
-        dtype="float16",
-        device="auto",
-    ),
+    # ModelSpec(
+    #     name="GPT3-dev",
+    #     hf_repo="k050506koch/GPT3-dev",  # TODO confirm
+    #     dtype="float16",
+    #     device="auto",
+    # ),
     # ModelSpec(
     #     name="GPT3-dev-125m",
     #     hf_repo="k050506koch/GPT3-dev-125m",  # TODO confirm

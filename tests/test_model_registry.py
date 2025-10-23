@@ -1,6 +1,7 @@
 """Tests for the dynamic model registry filtering."""
 from __future__ import annotations
 
+import json
 import sys
 import types
 from pathlib import Path
@@ -56,13 +57,26 @@ def reset_registry(monkeypatch):
     apply()
 
 
-def test_default_registry_includes_all_models(reset_registry):
+def test_default_registry_is_empty(reset_registry):
     names = {spec.name for spec in model_registry.list_models()}
-    assert names == {"GPT3-dev"}
+    assert names == set()
 
 
-def test_model_allow_list_filters(reset_registry):
-    reset_registry(allow_list=["GPT3-dev"])
+def test_model_allow_list_filters(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {"name": "GPT3-dev", "hf_repo": "dummy/dev"},
+                {"name": "Tiny", "hf_repo": "dummy/tiny"},
+            ]
+        )
+    )
+    reset_registry(registry_path=str(registry_path))
+    names = {spec.name for spec in model_registry.list_models()}
+    assert names == {"GPT3-dev", "Tiny"}
+
+    reset_registry(allow_list=["GPT3-dev"], registry_path=str(registry_path))
     names = {spec.name for spec in model_registry.list_models()}
     assert names == {"GPT3-dev"}
 

@@ -123,7 +123,7 @@ from app.schemas.completions import CompletionRequest
 def test_list_models() -> None:
     payload = models.list_available_models()
     assert payload["object"] == "list"
-    assert any(model["id"] == "GPT3-dev" for model in payload["data"])
+    assert payload["data"] == []
 
 
 def test_completions_non_stream(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -135,6 +135,7 @@ def test_completions_non_stream(monkeypatch: pytest.MonkeyPatch) -> None:
         return DummyResult()
 
     monkeypatch.setattr("app.routers.completions.engine.generate", fake_generate)
+    monkeypatch.setattr("app.routers.completions.get_model_spec", lambda model: None)
     payload = CompletionRequest.model_validate({
         "model": "GPT3-dev",
         "prompt": "Hello",

@@ -45,14 +45,11 @@ All configuration is driven via environment variables (see `app/core/settings.py
 | `ENABLE_EMBEDDINGS_BACKEND` | Enable embeddings backend (returns 501 when `False`) | `False` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated list of allowed origins | empty |
 
-The default in-memory registry (see `app/core/model_registry.py`) currently exposes only the following model ID:
-
-- `GPT3-dev` (17M parameters)
-
-Legacy configurations for larger GPT3-dev checkpoints and GPT-2 remain in the source tree but are commented out to keep the
-serverless bundle under Vercel's 250 MB ceiling. Uncomment the relevant `ModelSpec` definitions or supply a custom registry file
-if you need to re-enable them. Use `MODEL_ALLOW_LIST` (for example, `MODEL_ALLOW_LIST=GPT3-dev`) to limit a deployment to a
-smaller subset of models.
+The default in-memory registry (see `app/core/model_registry.py`) currently exposes no models. All bundled `ModelSpec`
+definitions are commented out so Vercel can build the project without downloading Hugging Face checkpoints while we diagnose
+the serverless size regression. Uncomment the relevant entries (for example, the 17M-parameter `GPT3-dev` checkpoint) or supply
+a custom registry file once you are ready to serve a model. Use `MODEL_ALLOW_LIST` to restrict a deployment to a smaller subset
+of model IDs when re-enabling them.
 
 ### Estimating Model Artifact Sizes
 
