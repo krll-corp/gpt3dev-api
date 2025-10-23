@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     model_registry_path: Optional[str] = Field(
         default=None, validation_alias="MODEL_REGISTRY_PATH"
     )
+    model_allow_list: Optional[List[str]] = Field(
+        default=None, validation_alias="MODEL_ALLOW_LIST"
+    )
 
     @field_validator("cors_allow_origins", mode="before")
     def _split_origins(cls, value: object) -> List[str]:  # noqa: D401, N805
@@ -46,6 +49,18 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return value
         raise ValueError("Invalid CORS origins configuration")
+
+    @field_validator("model_allow_list", mode="before")
+    def _split_model_list(cls, value: object) -> Optional[List[str]]:  # noqa: D401, N805
+        """Parse the optional allow list from environment formats."""
+        if not value:
+            return None
+        if isinstance(value, str):
+            items = [item.strip() for item in value.split(",") if item.strip()]
+            return items or None
+        if isinstance(value, list):
+            return value or None
+        raise ValueError("Invalid MODEL_ALLOW_LIST configuration")
 
 
 @lru_cache()

@@ -41,6 +41,7 @@ All configuration is driven via environment variables (see `app/core/settings.py
 | `DEFAULT_DEVICE` | Preferred device (`auto`, `cpu`, `cuda`, `mps`) | `auto` |
 | `MAX_CONTEXT_TOKENS` | Fallback max context window per model | `2048` |
 | `MODEL_REGISTRY_PATH` | Optional path to JSON/YAML registry file | `None` |
+| `MODEL_ALLOW_LIST` | Restrict registry to a comma-separated list of model IDs | `None` |
 | `ENABLE_EMBEDDINGS_BACKEND` | Enable embeddings backend (returns 501 when `False`) | `False` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated list of allowed origins | empty |
 
@@ -54,7 +55,27 @@ The default in-memory registry (see `app/core/model_registry.py`) exposes the fo
 - `GPT3-dev-125m`
 - `GPT-2`
 
-Each entry maps to a placeholder Hugging Face repository ID that can be customized in code or via an external registry file.
+Each entry maps to a placeholder Hugging Face repository ID that can be customized in code or via an external registry file. Use
+`MODEL_ALLOW_LIST` (for example, `MODEL_ALLOW_LIST=GPT3-dev,GPT-2`) to limit a deployment to a smaller subset of models.
+
+### Estimating Model Artifact Sizes
+
+The helper script `scripts/model_size_report.py` queries Hugging Face for each registered model and prints the aggregated
+artifact sizes. Supplying `--token` is recommended if any repositories are private:
+
+```bash
+python scripts/model_size_report.py --token "$HF_TOKEN"
+```
+
+This output is useful when planning how to shard heavier models across multiple deployments so that each serverless bundle stays
+below the 250 MB uncompressed ceiling enforced by Vercel and other AWS Lambda-based platforms.
+
+### Split Deployments for Large Models
+
+To deploy several large models without breaching the serverless size limit, create separate Vercel projects (or environments)
+that point to the same repository but configure distinct `MODEL_ALLOW_LIST` values. Each deployment then packages only the
+models it serves while sharing the rest of the codebase. Combine this with the size report above to decide which models belong
+on each instance.
 
 ### Running the API Server
 

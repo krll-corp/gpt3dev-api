@@ -226,8 +226,13 @@ def generate(
     stop_sequences = _normalize_stop(stop)
     max_new_tokens = max_tokens or 256
     inputs, prompt_tokens = _prepare_inputs(handle, prompt, max_new_tokens)
-    if handle.device_map is None:
-        inputs = {k: v.to(handle.device) for k, v in inputs.items()}
+    target_device = handle.device
+    if handle.device_map is not None:
+        try:
+            target_device = next(handle.model.parameters()).device
+        except StopIteration:  # pragma: no cover - defensive
+            target_device = handle.device
+    inputs = {k: v.to(target_device) for k, v in inputs.items()}
     generation_config = GenerationConfig(
         do_sample=temperature > 0,
         temperature=temperature,
@@ -268,8 +273,13 @@ def create_stream(
     stop_sequences = _normalize_stop(stop)
     max_new_tokens = max_tokens or 256
     inputs, prompt_tokens = _prepare_inputs(handle, prompt, max_new_tokens)
-    if handle.device_map is None:
-        inputs = {k: v.to(handle.device) for k, v in inputs.items()}
+    target_device = handle.device
+    if handle.device_map is not None:
+        try:
+            target_device = next(handle.model.parameters()).device
+        except StopIteration:  # pragma: no cover - defensive
+            target_device = handle.device
+    inputs = {k: v.to(target_device) for k, v in inputs.items()}
     streamer = TextIteratorStreamer(
         handle.tokenizer,
         skip_prompt=True,

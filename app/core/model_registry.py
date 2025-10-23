@@ -109,8 +109,20 @@ def _initialize_registry() -> None:
             specs = list(_load_registry_from_file(registry_path))
         else:
             raise FileNotFoundError(f"MODEL_REGISTRY_PATH not found: {registry_path}")
+    allow_list = None
+    if settings.model_allow_list:
+        allow_list = {name for name in settings.model_allow_list}
     for spec in specs:
+        if allow_list is not None and spec.name not in allow_list:
+            continue
         _registry[spec.name] = spec
+    if allow_list is not None:
+        missing = allow_list.difference(_registry)
+        if missing:
+            missing_str = ", ".join(sorted(missing))
+            raise KeyError(
+                f"MODEL_ALLOW_LIST references unknown models: {missing_str}"
+            )
 
 
 def _ensure_registry_loaded() -> None:
