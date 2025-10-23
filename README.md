@@ -27,6 +27,10 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+> [!TIP]
+> The requirements file pins the CPU-only PyTorch wheels via the official PyTorch index. This avoids compiling CUDA artifacts
+> during deployment (for example on Vercel's 8 GB build workers) and keeps memory usage comfortably within the available limits.
+
 ### Configuration
 
 All configuration is driven via environment variables (see `app/core/settings.py`). Key options include:
