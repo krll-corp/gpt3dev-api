@@ -1,28 +1,127 @@
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Ffastapi&demo-title=FastAPI&demo-description=Use%20FastAPI%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fvercel-plus-fastapi.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994600/random/python.png)
+# GPT3dev OpenAI-Compatible API
 
-# FastAPI + Vercel
+A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. A `/v1/chat/completions` stub is included but currently returns a structured 501 error because the available models are completion-only.
 
-This example shows how to use FastAPI on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+## Features
 
-## Demo
+- ✅ Drop-in compatible request/response schemas for OpenAI text completions.
+- ✅ Streaming responses (`stream=true`) that emit OpenAI-formatted SSE frames ending with `data: [DONE]`.
+- ✅ Configurable Hugging Face model registry with lazy loading, shared model cache, and automatic device placement.
+- ✅ Prompt token counting via `tiktoken` when available (falls back to Hugging Face tokenizers).
+- ✅ Structured OpenAI-style error payloads and health probe endpoint (`/healthz`).
+- ✅ Dockerfile and pytest suite for rapid deployment and regression coverage.
 
-https://vercel-plus-fastapi.vercel.app/
+## Getting Started
 
-## How it Works
+### Prerequisites
 
-This example uses the Asynchronous Server Gateway Interface (ASGI) with FastAPI to enable handling requests on Vercel with Serverless Functions.
+- Python 3.11+
+- (Optional) `HF_TOKEN` environment variable for private model access.
 
-## Running Locally
+### Installation
 
 ```bash
-npm i -g vercel
-vercel dev
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Your FastAPI application is now available at `http://localhost:3000`.
+### Configuration
 
-## One-Click Deploy
+All configuration is driven via environment variables (see `app/core/settings.py`). Key options include:
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
+| Variable | Description | Default |
+| --- | --- | --- |
+| `HF_TOKEN` | Hugging Face token for private models | `None` |
+| `DEFAULT_DEVICE` | Preferred device (`auto`, `cpu`, `cuda`, `mps`) | `auto` |
+| `MAX_CONTEXT_TOKENS` | Fallback max context window per model | `2048` |
+| `MODEL_REGISTRY_PATH` | Optional path to JSON/YAML registry file | `None` |
+| `ENABLE_EMBEDDINGS_BACKEND` | Enable embeddings backend (returns 501 when `False`) | `False` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated list of allowed origins | empty |
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Ffastapi&demo-title=FastAPI&demo-description=Use%20FastAPI%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fvercel-plus-fastapi.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994600/random/python.png)
+The default in-memory registry (see `app/core/model_registry.py`) exposes the following model IDs:
+
+- `GPT3-dev-350m-2805`
+- `GPT3-dev-125m-0104`
+- `GPT3-dev-125m-1202`
+- `GPT3-dev-125m-0612`
+- `GPT3-dev`
+- `GPT3-dev-125m`
+- `GPT-2`
+
+Each entry maps to a placeholder Hugging Face repository ID that can be customized in code or via an external registry file.
+
+### Running the API Server
+
+Launch the FastAPI application with your preferred ASGI server (for example, `uvicorn` or `hypercorn`). A reference Docker workflow is shown below:
+
+```bash
+docker build -t gpt3dev-api .
+docker run --rm -p 8000:8000 gpt3dev-api
+```
+
+## Usage Examples
+
+### List Models
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+### Text Completion
+
+```bash
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "GPT3-dev",
+        "prompt": "Write a haiku about fast APIs",
+        "max_tokens": 64
+      }'
+```
+
+### Chat Completions
+
+The `/v1/chat/completions` endpoint is currently disabled and returns a 501 Not Implemented error instructing clients to use `/v1/completions` instead. This keeps the API surface compatible for future fine-tuned chat models while avoiding confusing responses from the present completion-only models.
+
+### Embeddings
+
+The `/v1/embeddings` endpoint returns a 501 Not Implemented error with actionable guidance unless an embeddings backend is configured.
+
+## Testing
+
+```bash
+pytest
+```
+
+## Project Structure
+
+```
+app/
+  core/             # Settings, model registry, engine utilities
+  routers/          # FastAPI routers for each OpenAI endpoint
+  schemas/          # Pydantic request/response models
+  main.py           # Application factory
+tests/              # Pytest suite
+```
+
+## Extending the Model Registry
+
+To override or extend the built-in registry, set `MODEL_REGISTRY_PATH` to a JSON or YAML file containing entries such as:
+
+```json
+[
+  {
+    "name": "GPT3-dev-350m-2805",
+    "hf_repo": "k050506koch/GPT3-dev-350m-2805",
+    "dtype": "float16",
+    "device": "auto",
+    "max_context_tokens": 4096
+  }
+]
+```
+
+## License
+
+MIT
