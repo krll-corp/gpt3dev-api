@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import asyncio
 from typing import Generator, List
 
 from fastapi import APIRouter
@@ -36,7 +37,8 @@ async def create_completion(payload: CompletionRequest):
     )
     if payload.stream:
         return _streaming_completion(payload, prompt, stop_sequences)
-    result = engine.generate(
+    result = await asyncio.to_thread(
+        engine.generate,
         payload.model,
         prompt,
         temperature=payload.temperature,
