@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+import inspect
 from threading import Lock, Thread
 from typing import Generator, Iterable, List, Optional, Sequence, Tuple
 
@@ -50,6 +51,20 @@ class GenerationResult:
 
     prompt_tokens: int
     completions: List[GeneratedText]
+
+
+def _pad_token_id_or_default(tokenizer) -> int:
+    """Return a safe pad_token_id for generation.
+
+    Prefer tokenizer.pad_token_id; fall back to eos_token_id; otherwise 0.
+    """
+    pad = getattr(tokenizer, "pad_token_id", None)
+    if pad is not None:
+        return pad
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if eos is not None:
+        return eos
+    return 0
 
 
 class StreamingGeneration:
@@ -135,10 +150,7 @@ class _ModelHandle:
             "use_auth_token": token,
             "trust_remote_code": True,
         }
-        if spec.dtype:
-            torch_dtype = getattr(torch, spec.dtype, None)
-            if torch_dtype is not None:
-                model_kwargs["torch_dtype"] = torch_dtype
+        # Resolve preferred device early so we can adjust dtype if needed
         device_pref = spec.device or settings.default_device
         if device_pref == "auto":
             if torch.cuda.is_available():
@@ -147,6 +159,22 @@ class _ModelHandle:
                 device_pref = "mps"
             else:
                 device_pref = "cpu"
+        # Respect requested dtype, but avoid float16 on CPU which can fail
+        if spec.dtype:
+            torch_dtype = getattr(torch, spec.dtype, None)
+            if torch_dtype is not None:
+                if device_pref == "cpu":
+                    try:
+                        if torch_dtype == getattr(torch, "float16"):
+                            logger.warning(
+                                "Overriding dtype float16->float32 for model %s on CPU to avoid unsupported ops",
+                                spec.hf_repo,
+                            )
+                            torch_dtype = getattr(torch, "float32")
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+                # transformers >= 4.43 deprecates torch_dtype; prefer dtype
+                model_kwargs["dtype"] = torch_dtype
         device_map = "auto" if device_pref == "cuda" else None
         t1 = time.perf_counter()
         logger.info(
@@ -163,6 +191,60 @@ class _ModelHandle:
         logger.info("Model ready in %.2fs", time.perf_counter() - t1)
         if device_map is None:
             model = model.to(device_pref)
+        # Avoid newer cache API parameters for older custom models
+        try:  # pragma: no cover - defensive shim for remote code
+            if getattr(model.config, "use_cache", None) is not None:
+                model.config.use_cache = False
+            # Some custom GPT-style models may incorrectly declare encoder-decoder
+            # behavior. Force decoder-only to avoid passing encoder_attention_mask.
+            if getattr(model.config, "is_encoder_decoder", None):
+                logger.warning(
+                    "Overriding is_encoder_decoder=True->False for %s to avoid encoder_attention_mask issues",
+                    spec.hf_repo,
+                )
+                model.config.is_encoder_decoder = False
+            from types import MethodType  # local import to avoid global cost
+
+            _orig_forward = model.forward
+
+            def _forward_compat(self, *args, **kwargs):  # noqa: D401
+                # Drop kwargs unknown to older model forward signatures
+                kwargs.pop("cache_position", None)
+                kwargs.pop("encoder_attention_mask", None)
+                kwargs.pop("attention_mask", None)
+                return _orig_forward(*args, **kwargs)
+
+            model.forward = MethodType(_forward_compat, model)
+            # Also patch submodules whose forward signatures include
+            # encoder_attention_mask to avoid duplicate passing (positional+kw)
+            for _, module in model.named_modules():
+                fwd = getattr(module, "forward", None)
+                if not callable(fwd):
+                    continue
+                try:
+                    sig = inspect.signature(fwd)
+                except Exception:
+                    continue
+                if "encoder_attention_mask" not in sig.parameters:
+                    continue
+                orig_fwd = fwd
+
+                def _make_sub_forward(orig):
+                    def _sub_forward_compat(self, *args, **kwargs):  # noqa: D401
+                        kwargs.pop("encoder_attention_mask", None)
+                        kwargs.pop("attention_mask", None)
+                        kwargs.pop("cache_position", None)
+                        return orig(*args, **kwargs)
+
+                    return _sub_forward_compat
+
+                try:
+                    setattr(module, "forward", MethodType(_make_sub_forward(orig_fwd), module))
+                except Exception:
+                    # Best-effort patching; continue if a module resists reassignment
+                    pass
+        except Exception:
+            pass
         self.tokenizer = tokenizer
         self.model = model
         self.spec = spec
@@ -218,11 +300,12 @@ def _prepare_inputs(
     tokenizer = handle.tokenizer
     encoded = tokenizer(prompt, return_tensors="pt")
     input_ids = encoded["input_ids"]
-    attention_mask = encoded["attention_mask"]
+    attention_mask = encoded.get("attention_mask")
     max_context = handle.spec.max_context_tokens or get_settings().max_context_tokens
     if input_ids.shape[1] > max_context:
         input_ids = input_ids[:, -max_context:]
-        attention_mask = attention_mask[:, -max_context:]
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, -max_context:]
     prompt_tokens = input_ids.shape[1]
     if prompt_tokens + max_new_tokens > max_context:
         overflow = prompt_tokens + max_new_tokens - max_context
@@ -233,12 +316,11 @@ def _prepare_inputs(
                 param="max_tokens",
             )
         input_ids = input_ids[:, overflow:]
-        attention_mask = attention_mask[:, overflow:]
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, overflow:]
         prompt_tokens = input_ids.shape[1]
-    return {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
-    }, prompt_tokens
+    # Align with working example: pass only input_ids and let generate() derive masks
+    return {"input_ids": input_ids}, prompt_tokens
 
 
 def generate(
@@ -263,18 +345,25 @@ def generate(
             target_device = handle.device
     inputs = {k: v.to(target_device) for k, v in inputs.items()}
     # Lazy import for transformers + torch
-    _, _, GenerationConfig, _ = _lazy_import_transformers()
+    _ = _lazy_import_transformers()
     torch = _lazy_import_torch()
-    generation_config = GenerationConfig(
-        do_sample=temperature > 0,
-        temperature=temperature,
-        top_p=top_p,
-        max_new_tokens=max_new_tokens,
-        num_return_sequences=n,
-        pad_token_id=handle.tokenizer.pad_token_id,
-    )
+    # Build conservative kwargs compatible with older remote modeling code
+    gen_kwargs: dict = {
+        "max_new_tokens": max_new_tokens,
+        "pad_token_id": _pad_token_id_or_default(handle.tokenizer),
+        "num_return_sequences": n,
+        "do_sample": temperature > 0,
+        "use_cache": False,
+    }
+    if temperature > 0:
+        gen_kwargs["temperature"] = temperature
+        if 0.0 < top_p < 1.0:
+            gen_kwargs["top_p"] = top_p
     with torch.no_grad():
-        output_ids = handle.model.generate(**inputs, generation_config=generation_config)
+        output_ids = handle.model.generate(
+            **inputs,
+            **gen_kwargs,
+        )
     if output_ids.dim() == 1:
         sequences = output_ids.unsqueeze(0)
     else:
@@ -313,28 +402,31 @@ def create_stream(
             target_device = handle.device
     inputs = {k: v.to(target_device) for k, v in inputs.items()}
     # Lazy import for transformers + torch
-    _, _, GenerationConfig, TextIteratorStreamer = _lazy_import_transformers()
+    _, _, _, TextIteratorStreamer = _lazy_import_transformers()
     torch = _lazy_import_torch()
     streamer = TextIteratorStreamer(
         handle.tokenizer,
         skip_prompt=True,
         skip_special_tokens=True,
     )
-    generation_config = GenerationConfig(
-        do_sample=temperature > 0,
-        temperature=temperature,
-        top_p=top_p,
-        max_new_tokens=max_new_tokens,
-        num_return_sequences=1,
-        pad_token_id=handle.tokenizer.pad_token_id,
-    )
+    gen_kwargs: dict = {
+        "max_new_tokens": max_new_tokens,
+        "pad_token_id": _pad_token_id_or_default(handle.tokenizer),
+        "num_return_sequences": 1,
+        "do_sample": temperature > 0,
+        "use_cache": False,
+        "streamer": streamer,
+    }
+    if temperature > 0:
+        gen_kwargs["temperature"] = temperature
+        if 0.0 < top_p < 1.0:
+            gen_kwargs["top_p"] = top_p
 
     def _worker() -> None:
         with torch.no_grad():
             handle.model.generate(
                 **inputs,
-                generation_config=generation_config,
-                streamer=streamer,
+                **gen_kwargs,
             )
 
     thread = Thread(target=_worker, daemon=True)

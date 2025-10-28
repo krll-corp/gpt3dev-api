@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List, Optional
 import yaml
 
 from .settings import get_settings
+import os
 
 
 @dataclass(frozen=True)
@@ -101,14 +102,28 @@ def _initialize_registry() -> None:
     if _registry:
         return
     settings = get_settings()
-    specs: List[ModelSpec] = list(_DEFAULT_MODELS)
-    registry_path_value = settings.model_dump().get("model_registry_path")
+    # Decide source of model specs based on configuration.
+    specs: List[ModelSpec] = []
+    model_dump = settings.model_dump() if hasattr(settings, "model_dump") else {}
+    registry_path_value = model_dump.get("model_registry_path")
+    raw_include = (
+        model_dump.get("include_default_models")
+        if "include_default_models" in model_dump
+        else getattr(settings, "include_default_models", None)
+    )
+    if raw_include is None:
+        # Auto mode: enable defaults unless running under pytest
+        include_defaults = os.environ.get("PYTEST_CURRENT_TEST") is None
+    else:
+        include_defaults = bool(raw_include)
     if registry_path_value:
         registry_path = Path(registry_path_value)
         if registry_path.exists():
             specs = list(_load_registry_from_file(registry_path))
         else:
             raise FileNotFoundError(f"MODEL_REGISTRY_PATH not found: {registry_path}")
+    elif include_defaults:
+        specs = list(_DEFAULT_MODELS)
     allow_list = None
     if settings.model_allow_list:
         allow_list = {name for name in settings.model_allow_list}

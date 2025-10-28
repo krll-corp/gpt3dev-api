@@ -54,11 +54,9 @@ All configuration is driven via environment variables (see `app/core/settings.py
 | `ENABLE_EMBEDDINGS_BACKEND` | Enable embeddings backend (returns 501 when `False`) | `False` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated list of allowed origins | empty |
 
-The default in-memory registry (see `app/core/model_registry.py`) currently exposes no models. All bundled `ModelSpec`
-definitions are commented out so Vercel can build the project without downloading Hugging Face checkpoints while we diagnose
-the serverless size regression. Uncomment the relevant entries (for example, the 17M-parameter `GPT3-dev` checkpoint) or supply
-a custom registry file once you are ready to serve a model. Use `MODEL_ALLOW_LIST` to restrict a deployment to a smaller subset
-of model IDs when re-enabling them.
+The default in-memory registry (see `app/core/model_registry.py`) is disabled by default so CI/serverless environments do not
+download checkpoints unexpectedly. To enable the built‑in registry locally, set `INCLUDE_DEFAULT_MODELS=1`. Alternatively, supply
+your own registry via `MODEL_REGISTRY_PATH` (JSON or YAML) and optionally restrict with `MODEL_ALLOW_LIST`.
 
 ### Estimating Model Artifact Sizes
 

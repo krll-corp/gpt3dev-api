@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     model_allow_list: Optional[List[str]] = Field(
         default=None, validation_alias="MODEL_ALLOW_LIST"
     )
+    # None = auto: include defaults in normal runs, exclude in pytest
+    include_default_models: Optional[bool] = Field(
+        default=None, validation_alias="INCLUDE_DEFAULT_MODELS"
+    )
 
     @field_validator("cors_allow_origins", mode="before")
     def _split_origins(cls, value: object) -> List[str]:  # noqa: D401, N805

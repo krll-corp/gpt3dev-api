@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from ..core import engine
 from ..core.errors import model_not_found
+from ..core.errors import openai_http_error
 from ..core.model_registry import get_model_spec
 from ..schemas.common import UsageInfo
 from ..schemas.completions import (
@@ -37,16 +38,24 @@ async def create_completion(payload: CompletionRequest):
     )
     if payload.stream:
         return _streaming_completion(payload, prompt, stop_sequences)
-    result = await asyncio.to_thread(
-        engine.generate,
-        payload.model,
-        prompt,
-        temperature=payload.temperature,
-        top_p=payload.top_p,
-        max_tokens=payload.max_tokens,
-        stop=stop_sequences,
-        n=payload.n,
-    )
+    try:
+        result = await asyncio.to_thread(
+            engine.generate,
+            payload.model,
+            prompt,
+            temperature=payload.temperature,
+            top_p=payload.top_p,
+            max_tokens=payload.max_tokens,
+            stop=stop_sequences,
+            n=payload.n,
+        )
+    except Exception as exc:  # pragma: no cover - bubble as OpenAI-style error
+        raise openai_http_error(
+            500,
+            f"Generation error: {exc}",
+            error_type="server_error",
+            code="generation_error",
+        )
     choices: List[CompletionChoice] = []
     total_completion_tokens = 0
     for index, item in enumerate(result.completions):
