@@ -24,49 +24,49 @@ class ModelSpec:
 
 
 _DEFAULT_MODELS: List[ModelSpec] = [
-    # ModelSpec(
-    #     name="GPT3-dev-350m-2805",
-    #     hf_repo="k050506koch/GPT3-dev-350m-2805",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    #     max_context_tokens=4096,
-    # ),
-    # ModelSpec(
-    #     name="GPT3-dev-125m-0104",
-    #     hf_repo="k050506koch/GPT3-dev-125m-0104",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    # ),
-    # ModelSpec(
-    #     name="GPT3-dev-125m-1202",
-    #     hf_repo="k050506koch/GPT3-dev-125m-1202",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    # ),
-    # ModelSpec(
-    #     name="GPT3-dev-125m-0612",
-    #     hf_repo="k050506koch/GPT3-dev-125m-0612",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    # ),
-    # ModelSpec(
-    #     name="GPT3-dev",
-    #     hf_repo="k050506koch/GPT3-dev",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    # ),
-    # ModelSpec(
-    #     name="GPT3-dev-125m",
-    #     hf_repo="k050506koch/GPT3-dev-125m",  # TODO confirm
-    #     dtype="float16",
-    #     device="auto",
-    # ),
-    # ModelSpec(
-    #     name="GPT-2",
-    #     hf_repo="openai-community/gpt2",  # TODO confirm
-    #     dtype="float32",
-    #     device="auto",
-    # ),
+    ModelSpec(
+         name="GPT3-dev-350m-2805",
+        hf_repo="k050506koch/GPT3-dev-350m-2805",  # TODO confirm
+        dtype="float16",
+        device="auto",
+        max_context_tokens=4096,
+    ),
+    ModelSpec(
+        name="GPT3-dev-125m-0104",
+        hf_repo="k050506koch/GPT3-dev-125m-0104",  # TODO confirm
+        dtype="float16",
+        device="auto",
+    ),
+     ModelSpec(
+        name="GPT3-dev-125m-1202",
+        hf_repo="k050506koch/GPT3-dev-125m-1202",  # TODO confirm
+        dtype="float16",
+        device="auto",
+    ),
+     ModelSpec(
+        name="GPT3-dev-125m-0612",
+        hf_repo="k050506koch/GPT3-dev-125m-0612",  # TODO confirm
+        dtype="float16",
+        device="auto",
+    ),
+     ModelSpec(
+        name="GPT3-dev",
+        hf_repo="k050506koch/GPT3-dev",  # TODO confirm
+        dtype="float16",
+        device="auto",
+    ),
+     ModelSpec(
+        name="GPT3-dev-125m",
+        hf_repo="k050506koch/GPT3-dev-125m",  # TODO confirm
+        dtype="float16",
+        device="auto",
+    ),
+     ModelSpec(
+        name="GPT-2",
+        hf_repo="openai-community/gpt2",  # TODO confirm
+        dtype="float32",
+        device="auto",
+    ),
 ]
 
 _registry_lock = threading.Lock()
