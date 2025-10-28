@@ -58,6 +58,12 @@ async def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/")
+async def root() -> Dict[str, str]:
+    """Root endpoint used by platform health checks (e.g., HF Spaces)."""
+    return {"status": "ok", "message": "GPT3dev API is running"}
+
+
 @app.on_event("startup")
 async def on_startup() -> None:
     # Light-weight startup log to confirm the server is up
