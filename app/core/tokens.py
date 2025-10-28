@@ -1,24 +1,28 @@
 """Utilities for counting tokens in prompts and completions."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency
     import tiktoken
 except ImportError:  # pragma: no cover - optional dependency
     tiktoken = None  # type: ignore
 
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+if TYPE_CHECKING:  # Only for static type checking; avoid runtime import cost
+    from transformers import PreTrainedTokenizerBase
 
 from .model_registry import get_model_spec
 from .settings import get_settings
 
-_tokenizer_cache: dict[str, PreTrainedTokenizerBase] = {}
+_tokenizer_cache: dict[str, "PreTrainedTokenizerBase"] = {}
 
 
 def _get_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
     if model_name in _tokenizer_cache:
         return _tokenizer_cache[model_name]
+    # Lazy import to keep app startup fast
+    from transformers import AutoTokenizer  # noqa: WPS433 - local import by design
+
     spec = get_model_spec(model_name)
     settings = get_settings()
     tokenizer = AutoTokenizer.from_pretrained(
@@ -33,7 +37,7 @@ def _get_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
 def count_tokens(
     text: str,
     model_name: str,
-    tokenizer: Optional[PreTrainedTokenizerBase] = None,
+    tokenizer: Optional["PreTrainedTokenizerBase"] = None,
 ) -> int:
     """Count tokens using tiktoken when available, otherwise HF tokenizers."""
 

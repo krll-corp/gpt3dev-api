@@ -34,6 +34,7 @@ def configure_logging(level: str) -> None:
 
 settings = get_settings()
 configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="GPT3dev OpenAI-Compatible API", version="1.0.0")
 
@@ -55,6 +56,18 @@ app.include_router(embeddings.router)
 @app.get("/healthz")
 async def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    # Light-weight startup log to confirm the server is up
+    try:
+        from .core.model_registry import list_models
+
+        models = ", ".join(spec.name for spec in list_models())
+    except Exception:  # pragma: no cover - defensive logging only
+        models = "(unavailable)"
+    logger.info("API startup complete. Log level=%s. Models=[%s]", settings.log_level, models)
 
 
 @app.exception_handler(HTTPException)

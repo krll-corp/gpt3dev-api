@@ -2,17 +2,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from threading import Lock, Thread
 from typing import Generator, Iterable, List, Optional, Sequence, Tuple
 
-import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    GenerationConfig,
-    TextIteratorStreamer,
-)
+# Heavy libraries (torch, transformers) are imported lazily in functions
+# to keep application startup snappy.
 
 from .errors import model_not_found, openai_http_error
 from .model_registry import get_model_spec
@@ -20,6 +16,23 @@ from .settings import get_settings
 from .tokens import count_tokens
 
 logger = logging.getLogger(__name__)
+
+
+def _lazy_import_torch():  # pragma: no cover - indirection
+    import torch
+
+    return torch
+
+
+def _lazy_import_transformers():  # pragma: no cover - indirection
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        GenerationConfig,
+        TextIteratorStreamer,
+    )
+
+    return AutoModelForCausalLM, AutoTokenizer, GenerationConfig, TextIteratorStreamer
 
 
 @dataclass
@@ -103,11 +116,21 @@ class _ModelHandle:
         spec = get_model_spec(model_name)
         settings = get_settings()
         token = settings.hf_token
+
+        # Lazy imports to avoid slowing down app import
+        AutoModelForCausalLM, AutoTokenizer, _, _ = _lazy_import_transformers()
+        torch = _lazy_import_torch()
+
+        t0 = time.perf_counter()
+        logger.info("Loading tokenizer for %s", spec.hf_repo)
         tokenizer = AutoTokenizer.from_pretrained(
             spec.hf_repo,
             use_auth_token=token,
             trust_remote_code=True,
         )
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        logger.info("Tokenizer ready in %.2fs", time.perf_counter() - t0)
         model_kwargs = {
             "use_auth_token": token,
             "trust_remote_code": True,
@@ -125,15 +148,21 @@ class _ModelHandle:
             else:
                 device_pref = "cpu"
         device_map = "auto" if device_pref == "cuda" else None
+        t1 = time.perf_counter()
+        logger.info(
+            "Loading model %s on %s%s",
+            spec.hf_repo,
+            device_pref,
+            " (device_map=auto)" if device_map else "",
+        )
         model = AutoModelForCausalLM.from_pretrained(
             spec.hf_repo,
             device_map=device_map,
             **model_kwargs,
         )
+        logger.info("Model ready in %.2fs", time.perf_counter() - t1)
         if device_map is None:
-            model.to(device_pref)
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token = tokenizer.eos_token
+            model = model.to(device_pref)
         self.tokenizer = tokenizer
         self.model = model
         self.spec = spec
@@ -185,7 +214,7 @@ def _prepare_inputs(
     handle: _ModelHandle,
     prompt: str,
     max_new_tokens: int,
-) -> tuple[dict[str, torch.Tensor], int]:
+) -> tuple[dict[str, "torch.Tensor"], int]:
     tokenizer = handle.tokenizer
     encoded = tokenizer(prompt, return_tensors="pt")
     input_ids = encoded["input_ids"]
@@ -233,6 +262,9 @@ def generate(
         except StopIteration:  # pragma: no cover - defensive
             target_device = handle.device
     inputs = {k: v.to(target_device) for k, v in inputs.items()}
+    # Lazy import for transformers + torch
+    _, _, GenerationConfig, _ = _lazy_import_transformers()
+    torch = _lazy_import_torch()
     generation_config = GenerationConfig(
         do_sample=temperature > 0,
         temperature=temperature,
@@ -280,6 +312,9 @@ def create_stream(
         except StopIteration:  # pragma: no cover - defensive
             target_device = handle.device
     inputs = {k: v.to(target_device) for k, v in inputs.items()}
+    # Lazy import for transformers + torch
+    _, _, GenerationConfig, TextIteratorStreamer = _lazy_import_transformers()
+    torch = _lazy_import_torch()
     streamer = TextIteratorStreamer(
         handle.tokenizer,
         skip_prompt=True,
