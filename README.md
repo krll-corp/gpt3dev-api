@@ -1,12 +1,12 @@
 ---
 title: GPT3dev OpenAI-Compatible API
-emoji: 🚀
+emoji: "🚀"
 colorFrom: indigo
 colorTo: blue
 sdk: docker
 pinned: false
-pinned: false
 ---
+
 # GPT3dev OpenAI-Compatible API
 
 A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. A `/v1/chat/completions` stub is included but currently returns a structured 501 error because the available models are completion-only.
