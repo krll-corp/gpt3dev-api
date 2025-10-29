@@ -11,6 +11,11 @@ pinned: false
 
 A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. A `/v1/chat/completions` stub is included but currently returns a structured 501 error because the available models are completion-only.
 
+##The API is hosted on HuggingFace Spaces:
+```bash
+https://k050506koch-gpt3-dev-api.hf.space
+```
+
 ## Features
 
 - ✅ Drop-in compatible request/response schemas for OpenAI text completions.
@@ -37,8 +42,7 @@ pip install -r requirements.txt
 ```
 
 > [!TIP]
-> The requirements file pins the CPU-only PyTorch wheels via the official PyTorch index. This avoids compiling CUDA artifacts
-> during deployment (for example on Vercel's 8 GB build workers) and keeps memory usage comfortably within the available limits.
+> The project can't be deployed on Vercel (pytorch alone weights more than 250mb)
 
 ### Configuration
 
@@ -68,7 +72,6 @@ python scripts/model_size_report.py --token "$HF_TOKEN"
 ```
 
 This output is useful when planning how to shard heavier models across multiple deployments so that each serverless bundle stays
-below the 250 MB uncompressed ceiling enforced by Vercel and other AWS Lambda-based platforms.
 
 ### Split Deployments for Large Models
 
@@ -83,7 +86,7 @@ Launch the FastAPI application with your preferred ASGI server (for example, `uv
 
 ```bash
 docker build -t gpt3dev-api .
-docker run --rm -p 8000:8000 gpt3dev-api
+docker run --rm -p 7860:7860 gpt3dev-api
 ```
 
 ## Usage Examples
@@ -91,24 +94,24 @@ docker run --rm -p 8000:8000 gpt3dev-api
 ### List Models
 
 ```bash
-curl http://localhost:8000/v1/models
+curl http://localhost:7860/v1/models
 ```
 
 ### Text Completion
 
 ```bash
-curl http://localhost:8000/v1/completions \
+curl http://localhost:7860/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-        "model": "GPT3-dev",
-        "prompt": "Write a haiku about fast APIs",
+        "model": "GPT3-dev-350m-2805",
+        "prompt": "He is a doctor. His main goal is",
         "max_tokens": 64
       }'
 ```
 
 ### Chat Completions
 
-The `/v1/chat/completions` endpoint is currently disabled and returns a 501 Not Implemented error instructing clients to use `/v1/completions` instead. This keeps the API surface compatible for future fine-tuned chat models while avoiding confusing responses from the present completion-only models.
+The `/v1/chat/completions` endpoint is currently disabled and returns a 501 Not Implemented error instructing clients to use `/v1/completions` instead. I don't have any chat-tuned models now, but I plan to enable this endpoint later with openai harmony - tuned models.
 
 ### Embeddings
 
@@ -116,8 +119,13 @@ The `/v1/embeddings` endpoint returns a 501 Not Implemented error with actionabl
 
 ## Testing
 
+Can be configured with
+```bash
+export RUN_LIVE_API_TESTS=0 #or 1
+```
 ```bash
 pytest
+pytest -k pytest -k live_more_models
 ```
 
 ## Project Structure
