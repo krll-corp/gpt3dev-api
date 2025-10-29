@@ -1,13 +1,18 @@
 """FastAPI application entrypoint."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+from datetime import datetime, timezone
 from logging.config import dictConfig
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from .core.settings import get_settings
 from .routers import chat, completions, embeddings, models
@@ -38,6 +43,75 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="GPT3dev OpenAI-Compatible API", version="1.0.0")
 
+CHECK_INTERVAL_SECONDS = 60
+IGNORED_MONITOR_PATHS = {"/"}
+
+EndpointStatus = Dict[str, Dict[str, Any]]
+
+_endpoint_status: Dict[str, Any] = {"failures": {}, "last_checked": None}
+_endpoint_monitor_task: Optional[asyncio.Task[None]] = None
+
+
+def _monitored_endpoints() -> List[str]:
+    endpoints: List[str] = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if "GET" not in (route.methods or set()):
+            continue
+        if route.path in IGNORED_MONITOR_PATHS:
+            continue
+        if route.dependant.path_params:
+            continue
+        if not route.include_in_schema:
+            continue
+        endpoints.append(route.path)
+    return sorted(set(endpoints))
+
+
+async def _poll_endpoint_health() -> None:
+    previous_failures: set[str] = set()
+    async with httpx.AsyncClient(app=app, base_url="http://status-check", timeout=10.0) as client:
+        while True:
+            try:
+                monitored_paths = _monitored_endpoints()
+                failures: Dict[str, Dict[str, Any]] = {}
+                for path in monitored_paths:
+                    try:
+                        response = await client.get(path)
+                    except httpx.HTTPError as exc:
+                        failures[path] = {"error": str(exc)}
+                        continue
+                    except Exception as exc:  # pragma: no cover - defensive
+                        failures[path] = {"error": str(exc)}
+                        continue
+                    if not 200 <= response.status_code < 400:
+                        failures[path] = {
+                            "status_code": response.status_code,
+                            "detail": response.text[:200],
+                        }
+                _endpoint_status["failures"] = failures
+                _endpoint_status["last_checked"] = datetime.now(timezone.utc).isoformat()
+                current_failures = set(failures.keys())
+                if current_failures != previous_failures:
+                    if current_failures:
+                        logger.warning("Endpoint monitor detected failures: %s", sorted(current_failures))
+                    elif previous_failures:
+                        logger.info("All monitored endpoints restored")
+                    previous_failures = current_failures
+                await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+            except asyncio.CancelledError:  # pragma: no cover - shutdown handling
+                raise
+            except Exception:  # pragma: no cover - defensive logging only
+                logger.exception("Unexpected error during endpoint monitoring")
+                await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+
+
+def _ensure_monitor_task() -> None:
+    global _endpoint_monitor_task
+    if _endpoint_monitor_task is None or _endpoint_monitor_task.done():
+        _endpoint_monitor_task = asyncio.create_task(_poll_endpoint_health())
+
 if settings.cors_allow_origins:
     app.add_middleware(
         CORSMiddleware,
@@ -59,9 +133,21 @@ async def healthcheck() -> Dict[str, str]:
 
 
 @app.get("/")
-async def root() -> Dict[str, str]:
+async def root() -> Dict[str, Any]:
     """Root endpoint used by platform health checks (e.g., HF Spaces)."""
-    return {"status": "ok", "message": "GPT3dev API is running"}
+    base_response: Dict[str, Any] = {"status": "ok", "message": "GPT3dev API is running"}
+    failures: EndpointStatus = _endpoint_status.get("failures", {})
+    if not failures:
+        return base_response
+    degraded_response = dict(base_response)
+    degraded_response["status"] = "degraded"
+    degraded_response["issues"] = [
+        {"endpoint": path, **details} for path, details in sorted(failures.items())
+    ]
+    last_checked = _endpoint_status.get("last_checked")
+    if last_checked:
+        degraded_response["last_checked"] = last_checked
+    return degraded_response
 
 
 @app.on_event("startup")
@@ -74,6 +160,17 @@ async def on_startup() -> None:
     except Exception:  # pragma: no cover - defensive logging only
         models = "(unavailable)"
     logger.info("API startup complete. Log level=%s. Models=[%s]", settings.log_level, models)
+    _ensure_monitor_task()
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    global _endpoint_monitor_task
+    if _endpoint_monitor_task is not None:
+        _endpoint_monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _endpoint_monitor_task
+        _endpoint_monitor_task = None
 
 
 @app.exception_handler(HTTPException)
