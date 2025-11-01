@@ -115,6 +115,7 @@ sys.modules.setdefault("yaml", fake_yaml)
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from app.core.model_registry import ModelMetadata, ModelSpec
 from app.routers import chat, completions, embeddings, models
 from app.schemas.chat import ChatCompletionRequest
 from app.schemas.completions import CompletionRequest
@@ -147,6 +148,39 @@ def test_completions_non_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["usage"]["total_tokens"] == 7
 
 
+def test_completions_handles_prompt_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class DummyItem:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.tokens = 1
+            self.finish_reason = "stop"
+
+    class DummyResult:
+        def __init__(self, prompt: str) -> None:
+            self.prompt_tokens = len(prompt)
+            self.completions = [DummyItem(f"{prompt}-out")]
+
+    def fake_generate(model: str, prompt: str, **_: object) -> DummyResult:
+        calls.append(prompt)
+        return DummyResult(prompt)
+
+    monkeypatch.setattr("app.routers.completions.engine.generate", fake_generate)
+    monkeypatch.setattr("app.routers.completions.get_model_spec", lambda model: None)
+    payload = CompletionRequest.model_validate(
+        {
+            "model": "GPT3-dev",
+            "prompt": ["Hello", "World"],
+        }
+    )
+    response = asyncio.run(completions.create_completion(payload))
+    body = response.model_dump()
+    assert calls == ["Hello", "World"]
+    assert [choice["text"] for choice in body["choices"]] == ["Hello-out", "World-out"]
+    assert body["usage"]["prompt_tokens"] == len("Hello") + len("World")
+
+
 def test_chat_disabled() -> None:
     payload = ChatCompletionRequest.model_validate({
         "model": "GPT3-dev",
@@ -166,3 +200,22 @@ def test_embeddings_not_implemented() -> None:
         asyncio.run(embeddings.create_embeddings())
     assert exc.value.status_code == 501
     assert exc.value.detail["code"] == "embeddings_backend_unavailable"
+
+
+def test_model_detail_serialization(monkeypatch: pytest.MonkeyPatch) -> None:
+    metadata = ModelMetadata(description="Example", parameter_count="1M")
+    spec = ModelSpec(
+        name="example",
+        hf_repo="example/repo",
+        metadata=metadata,
+        dtype="float16",
+        device="cpu",
+        max_context_tokens=1024,
+    )
+    monkeypatch.setattr(models, "list_models", lambda: [spec])
+    monkeypatch.setattr(models, "get_model_spec", lambda _: spec)
+
+    listing = models.list_available_models()
+    assert listing["data"][0]["metadata"]["description"] == "Example"
+    detail = models.retrieve_model("example")
+    assert detail["metadata"]["huggingface_repo"] == "example/repo"
