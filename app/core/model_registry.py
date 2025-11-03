@@ -5,12 +5,44 @@ import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
 from .settings import get_settings
 import os
+
+
+@dataclass(frozen=True)
+class ModelMetadata:
+    """Descriptive metadata gathered from author-provided sources."""
+
+    description: str
+    parameter_count: Optional[str] = None
+    training_datasets: Optional[str] = None
+    training_tokens: Optional[str] = None
+    training_steps: Optional[str] = None
+    evaluation: Optional[str] = None
+    notes: Optional[str] = None
+    sources: Tuple[str, ...] = ()
+
+    def to_dict(self) -> Dict[str, object]:
+        data: Dict[str, object] = {"description": self.description}
+        if self.parameter_count:
+            data["parameter_count"] = self.parameter_count
+        if self.training_datasets:
+            data["training_datasets"] = self.training_datasets
+        if self.training_tokens:
+            data["training_tokens"] = self.training_tokens
+        if self.training_steps:
+            data["training_steps"] = self.training_steps
+        if self.evaluation:
+            data["evaluation"] = self.evaluation
+        if self.notes:
+            data["notes"] = self.notes
+        if self.sources:
+            data["sources"] = list(self.sources)
+        return data
 
 
 @dataclass(frozen=True)
@@ -22,51 +54,124 @@ class ModelSpec:
     dtype: Optional[str] = None
     device: Optional[str] = None
     max_context_tokens: Optional[int] = None
+    metadata: Optional[ModelMetadata] = None
 
 
 _DEFAULT_MODELS: List[ModelSpec] = [
     ModelSpec(
-         name="GPT3-dev-350m-2805",
-        hf_repo="k050506koch/GPT3-dev-350m-2805",  # TODO confirm
+        name="GPT3-dev-350m-2805",
+        hf_repo="k050506koch/GPT3-dev-350m-2805",
         dtype="float16",
         device="auto",
         max_context_tokens=4096,
+        metadata=ModelMetadata(
+            description="350M parameter GPT-3-style checkpoint released on 2025-05-28.",
+            parameter_count="350M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_steps="10,000 steps · sequence length 512 · batch size 192 · Lion optimizer",
+            evaluation="28.55% MMLU (author reported)",
+            notes="Custom GPT-3 architecture that requires trust_remote_code when loading.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev-350m-2805",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
     ModelSpec(
         name="GPT3-dev-125m-0104",
-        hf_repo="k050506koch/GPT3-dev-125m-0104",  # TODO confirm
+        hf_repo="k050506koch/GPT3-dev-125m-0104",
         dtype="float16",
         device="auto",
+        metadata=ModelMetadata(
+            description="Fourth 125M checkpoint for the GPT3-dev series released 2025-01-04.",
+            parameter_count="125M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_steps="65,000 steps · sequence length 512 · batch size 12 · grad_accum 4 · Lion optimizer",
+            evaluation="28.65% MMLU (author reported)",
+            notes="Shares custom GPT-3 style architecture and instruct template guidance in repository README.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev-125m-0104",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
-     ModelSpec(
+    ModelSpec(
         name="GPT3-dev-125m-1202",
-        hf_repo="k050506koch/GPT3-dev-125m-1202",  # TODO confirm
+        hf_repo="k050506koch/GPT3-dev-125m-1202",
         dtype="float16",
         device="auto",
+        metadata=ModelMetadata(
+            description="Third 125M checkpoint from December 2, 2025 with Lion optimizer fine-tuning.",
+            parameter_count="125M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_steps="36,500 steps · sequence length 512 · batch size 12 · grad_accum 4 · Lion optimizer",
+            evaluation="28.03% MMLU (author reported)",
+            notes="Requires trust_remote_code; serves as base for later instruct-tuned releases.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev-125m-1202",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
-     ModelSpec(
+    ModelSpec(
         name="GPT3-dev-125m-0612",
-        hf_repo="k050506koch/GPT3-dev-125m-0612",  # TODO confirm
+        hf_repo="k050506koch/GPT3-dev-125m-0612",
         dtype="float16",
         device="auto",
+        metadata=ModelMetadata(
+            description="June 12, 2024 125M checkpoint trained longer with gradient accumulation.",
+            parameter_count="125M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_steps="600,000 steps · sequence length 512 · batch size 12 · grad_accum 4",
+            evaluation="27.65% MMLU (author reported)",
+            notes="Custom GPT-3 style architecture distributed with gguf exports alongside Transformers weights.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev-125m-0612",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
-     ModelSpec(
+    ModelSpec(
         name="GPT3-dev",
-        hf_repo="k050506koch/GPT3-dev",  # TODO confirm
+        hf_repo="k050506koch/GPT3-dev",
         dtype="float16",
         device="auto",
+        metadata=ModelMetadata(
+            description="17M parameter architecture demonstrator for the GPT3-dev project.",
+            parameter_count="17M",
+            training_datasets="HuggingFaceFW/fineweb",
+            notes="Early experimental checkpoint intended to showcase the custom GPT-3 style stack.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
-     ModelSpec(
+    ModelSpec(
         name="GPT3-dev-125m",
-        hf_repo="k050506koch/GPT3-dev-125m",  # TODO confirm
+        hf_repo="k050506koch/GPT3-dev-125m",
         dtype="float16",
         device="auto",
+        metadata=ModelMetadata(
+            description="Early 125M parameter GPT3-dev checkpoint trained on roughly 3.6B tokens.",
+            parameter_count="125M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_tokens="≈3.6B tokens",
+            notes="Technology demonstrator preceding the longer 2024-2025 training runs.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT3-dev-125m",
+                "https://github.com/krll-corp/GPT3",
+            ),
+        ),
     ),
-     ModelSpec(
+    ModelSpec(
         name="GPT-2",
-        hf_repo="openai-community/gpt2",  # TODO confirm
+        hf_repo="openai-community/gpt2",
         dtype="float32",
         device="auto",
+        metadata=ModelMetadata(
+            description="No additional details provided.",
+        ),
     ),
 ]
 
@@ -86,6 +191,19 @@ def _load_registry_from_file(path: Path) -> Iterable[ModelSpec]:
     for entry in loaded:
         if not isinstance(entry, dict):
             raise ValueError("Model registry entries must be objects")
+        metadata_entry = entry.get("metadata")
+        metadata = None
+        if isinstance(metadata_entry, dict) and metadata_entry.get("description"):
+            metadata = ModelMetadata(
+                description=metadata_entry["description"],
+                parameter_count=metadata_entry.get("parameter_count"),
+                training_datasets=metadata_entry.get("training_datasets"),
+                training_tokens=metadata_entry.get("training_tokens"),
+                training_steps=metadata_entry.get("training_steps"),
+                evaluation=metadata_entry.get("evaluation"),
+                notes=metadata_entry.get("notes"),
+                sources=tuple(metadata_entry.get("sources", ()) or ()),
+            )
         specs.append(
             ModelSpec(
                 name=entry["name"],
@@ -93,6 +211,7 @@ def _load_registry_from_file(path: Path) -> Iterable[ModelSpec]:
                 dtype=entry.get("dtype"),
                 device=entry.get("device"),
                 max_context_tokens=entry.get("max_context_tokens"),
+                metadata=metadata,
             )
         )
     return specs
