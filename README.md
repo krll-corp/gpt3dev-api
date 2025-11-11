@@ -125,7 +125,7 @@ export RUN_LIVE_API_TESTS=0 #or 1
 ```
 ```bash
 pytest
-pytest -k pytest -k live_more_models
+pytest -k live_more_models
 ```
 
 ## Project Structure
