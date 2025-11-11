@@ -1,9 +1,8 @@
 """Additional live API tests to exercise multiple models.
 
 Skipped by default; set RUN_LIVE_API_TESTS=1 to enable.
-This test is lenient: if a model is listed by /v1/models but is not
-actually usable (e.g., missing HF auth or unavailable backend), the
-test skips that case instead of failing the suite.
+The suite skips candidates that are missing from /v1/models but now
+fails whenever the live API returns an error so issues surface in CI.
 """
 from __future__ import annotations
 
@@ -57,9 +56,12 @@ def test_completion_for_models(model: str) -> None:
     with httpx.Client(timeout=timeout) as client:
         resp = client.post(f"{BASE_URL}/v1/completions", json=payload)
 
-    if resp.status_code != 200:
-        pytest.skip(
-            f"model {model} not usable on server (status={resp.status_code}): {resp.text[:500]}"
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:  # pragma: no cover - only hit when live API misbehaves
+        pytest.fail(
+            f"model {model} returned an error response: "
+            f"{exc.response.status_code} {exc.response.text[:500]}"
         )
 
     body = resp.json()
