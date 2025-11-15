@@ -59,6 +59,24 @@ class ModelSpec:
 
 _DEFAULT_MODELS: List[ModelSpec] = [
     ModelSpec(
+        name="GPT4-dev-177M-1511",
+        hf_repo="k050506koch/GPT4-dev-177M-1511",
+        dtype="float16",
+        device="auto",
+        max_context_tokens=512,
+        metadata=ModelMetadata(
+            description="117M parameter GPT-4-inspired checkpoint released on 15-11-2025.",
+            parameter_count="117M",
+            training_datasets="HuggingFaceFW/fineweb",
+            training_steps="78,000 steps · sequence length 512 · batch size 192 · Lion optimizer",
+            evaluation="29.30% MMLU (author reported)",
+            notes="Custom GPT-4-insopired architecture that requires trust_remote_code when loading.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT4-dev-177M-1511",
+            ),
+        ),
+    ),
+    ModelSpec(
         name="GPT3-dev-350m-2805",
         hf_repo="k050506koch/GPT3-dev-350m-2805",
         dtype="float16",
