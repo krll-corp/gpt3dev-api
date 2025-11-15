@@ -106,17 +106,6 @@ def test_model_allow_list_unknown_model(reset_registry):
         model_registry.list_models()
 
 
-def test_custom_registry_replaces_defaults(reset_registry, tmp_path: Path):
-    registry_path = tmp_path / "registry.json"
-    registry_path.write_text(
-        json.dumps([{"name": "Tiny", "hf_repo": "dummy/tiny"}])
-    )
-    reset_registry(registry_path=str(registry_path))
-    names = {spec.name for spec in model_registry.list_models()}
-
-    assert names == {"Tiny"}
-
-
 def test_custom_registry_can_extend_defaults(reset_registry, tmp_path: Path):
     registry_path = tmp_path / "registry.json"
     registry_path.write_text(

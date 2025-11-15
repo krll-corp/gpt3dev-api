@@ -253,16 +253,16 @@ def _initialize_registry() -> None:
         include_defaults = os.environ.get("PYTEST_CURRENT_TEST") is None
     else:
         include_defaults = bool(raw_include)
+    file_specs: List[ModelSpec] = []
     if registry_path_value:
         registry_path = Path(registry_path_value)
         if registry_path.exists():
-            specs = list(_load_registry_from_file(registry_path))
+            file_specs = list(_load_registry_from_file(registry_path))
         else:
             raise FileNotFoundError(f"MODEL_REGISTRY_PATH not found: {registry_path}")
-        if raw_include is True:
-            specs = list(_DEFAULT_MODELS) + specs
-    elif include_defaults:
-        specs = list(_DEFAULT_MODELS)
+    if include_defaults:
+        specs.extend(_DEFAULT_MODELS)
+    specs.extend(file_specs)
     allow_list = None
     if settings.model_allow_list:
         allow_list = {name for name in settings.model_allow_list}
