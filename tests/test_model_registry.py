@@ -37,18 +37,37 @@ from app.core import model_registry
 class DummySettings:
     """Minimal settings stand-in for registry tests."""
 
-    def __init__(self, *, allow_list: list[str] | None = None, registry_path: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        allow_list: list[str] | None = None,
+        registry_path: str | None = None,
+        include_defaults: bool | None = None,
+    ) -> None:
         self.model_allow_list = allow_list
         self._registry_path = registry_path
+        self.include_default_models = include_defaults
 
     def model_dump(self) -> dict:
-        return {"model_registry_path": self._registry_path}
+        data = {"model_registry_path": self._registry_path}
+        if self.include_default_models is not None:
+            data["include_default_models"] = self.include_default_models
+        return data
 
 
 @pytest.fixture(autouse=True)
 def reset_registry(monkeypatch):
-    def apply(*, allow_list: list[str] | None = None, registry_path: str | None = None) -> None:
-        dummy = DummySettings(allow_list=allow_list, registry_path=registry_path)
+    def apply(
+        *,
+        allow_list: list[str] | None = None,
+        registry_path: str | None = None,
+        include_defaults: bool | None = None,
+    ) -> None:
+        dummy = DummySettings(
+            allow_list=allow_list,
+            registry_path=registry_path,
+            include_defaults=include_defaults,
+        )
         monkeypatch.setattr(model_registry, "get_settings", lambda: dummy, raising=False)
         model_registry._registry.clear()
 
@@ -85,3 +104,25 @@ def test_model_allow_list_unknown_model(reset_registry):
     reset_registry(allow_list=["unknown"])
     with pytest.raises(KeyError):
         model_registry.list_models()
+
+
+def test_custom_registry_replaces_defaults(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(
+        json.dumps([{"name": "Tiny", "hf_repo": "dummy/tiny"}])
+    )
+    reset_registry(registry_path=str(registry_path))
+    names = {spec.name for spec in model_registry.list_models()}
+
+    assert names == {"Tiny"}
+
+
+def test_custom_registry_can_extend_defaults(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(
+        json.dumps([{"name": "Tiny", "hf_repo": "dummy/tiny"}])
+    )
+    reset_registry(registry_path=str(registry_path), include_defaults=True)
+    names = {spec.name for spec in model_registry.list_models()}
+    assert "Tiny" in names
+    assert "GPT3-dev" in names

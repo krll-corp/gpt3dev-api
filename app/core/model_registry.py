@@ -259,6 +259,8 @@ def _initialize_registry() -> None:
             specs = list(_load_registry_from_file(registry_path))
         else:
             raise FileNotFoundError(f"MODEL_REGISTRY_PATH not found: {registry_path}")
+        if raw_include is True:
+            specs = list(_DEFAULT_MODELS) + specs
     elif include_defaults:
         specs = list(_DEFAULT_MODELS)
     allow_list = None
