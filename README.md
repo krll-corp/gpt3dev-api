@@ -8,10 +8,11 @@ pinned: false
 ---
 
 # GPT3dev OpenAI-Compatible API
+**more detailed documentation is hoeeted on [DeepWiki](https://deepwiki.com/krll-corp/gpt3dev-api)**
 
 A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. A `/v1/chat/completions` stub is included but currently returns a structured 501 error because the available models are completion-only.
 
-##The API is hosted on HuggingFace Spaces:
+## The API is hosted on HuggingFace Spaces:
 ```bash
 https://k050506koch-gpt3-dev-api.hf.space
 ```
