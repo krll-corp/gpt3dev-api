@@ -74,7 +74,6 @@ _DEFAULT_MODELS: List[ModelSpec] = [
             sources=(
                 "https://huggingface.co/k050506koch/GPT4-dev-177M-1511",
             ),
-            sources=("https://huggingface.co/k050506koch/GPT4-dev-177M-1511",),
         ),
     ),
     ModelSpec(
