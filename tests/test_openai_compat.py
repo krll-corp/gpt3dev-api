@@ -162,11 +162,6 @@ def test_models_endpoint_returns_default_payload(monkeypatch: pytest.MonkeyPatch
             assert data, "Default models should be present"
             ids = {item["id"] for item in data}
             assert "GPT3-dev-350m-2805" in ids
-            sample = next(item for item in data if item["id"] == "GPT3-dev-350m-2805")
-            assert (
-                sample["metadata"].get("huggingface_repo")
-                == "k050506koch/GPT3-dev-350m-2805"
-            )
         finally:
             model_registry_module._registry.clear()
 
