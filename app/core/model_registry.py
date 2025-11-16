@@ -71,9 +71,7 @@ _DEFAULT_MODELS: List[ModelSpec] = [
             training_steps="78,000 steps · sequence length 512 · batch size 192 · Lion optimizer",
             evaluation="29.30% MMLU (author reported)",
             notes="Custom GPT-4-insopired architecture that requires trust_remote_code when loading.",
-            sources=(
-                "https://huggingface.co/k050506koch/GPT4-dev-177M-1511",
-            ),
+            sources=("https://huggingface.co/k050506koch/GPT4-dev-177M-1511",),
         ),
     ),
     ModelSpec(
