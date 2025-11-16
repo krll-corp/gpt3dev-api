@@ -7,7 +7,8 @@ from pathlib import Path
 import asyncio
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 import pydantic
 
 fake_pydantic_settings = types.ModuleType("pydantic_settings")
@@ -115,6 +116,7 @@ sys.modules.setdefault("yaml", fake_yaml)
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from app.core import model_registry as model_registry_module
 from app.core.model_registry import ModelMetadata, ModelSpec
 from app.routers import chat, completions, embeddings, models
 from app.schemas.chat import ChatCompletionRequest
@@ -125,6 +127,48 @@ def test_list_models() -> None:
     payload = models.list_available_models()
     assert payload["object"] == "list"
     assert payload["data"] == []
+
+
+def test_models_endpoint_returns_default_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummySettings:
+        def __init__(self) -> None:
+            self.model_allow_list = None
+            self.include_default_models = True
+            self.model_registry_path = None
+
+        def model_dump(self) -> dict:
+            return {
+                "model_registry_path": self.model_registry_path,
+                "include_default_models": self.include_default_models,
+            }
+
+    app = FastAPI()
+    app.include_router(models.router)
+    monkeypatch.setattr(
+        model_registry_module,
+        "get_settings",
+        lambda: DummySettings(),
+        raising=False,
+    )
+
+    with TestClient(app) as client:
+        model_registry_module._registry.clear()
+        try:
+            resp = client.get("/v1/models")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["object"] == "list"
+            data = body["data"]
+            assert data, "Default models should be present"
+            ids = {item["id"] for item in data}
+            assert "GPT3-dev-350m-2805" in ids
+            sample = next(item for item in data if item["id"] == "GPT3-dev-350m-2805")
+            assert (
+                sample["metadata"].get("huggingface_repo")
+                == "k050506koch/GPT3-dev-350m-2805"
+            )
+        finally:
+            model_registry_module._registry.clear()
 
 
 def test_completions_non_stream(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,6 +260,6 @@ def test_model_detail_serialization(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(models, "get_model_spec", lambda _: spec)
 
     listing = models.list_available_models()
-    assert listing["data"][0]["metadata"]["huggingface_repo"] == "example/repo"
+    assert "metadata" not in listing["data"][0]
     detail = models.retrieve_model("example")
     assert detail["metadata"]["huggingface_repo"] == "example/repo"
