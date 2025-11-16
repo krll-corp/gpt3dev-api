@@ -260,6 +260,6 @@ def test_model_detail_serialization(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(models, "get_model_spec", lambda _: spec)
 
     listing = models.list_available_models()
-    assert listing["data"][0]["metadata"]["description"] == "Example"
+    assert "metadata" not in listing["data"][0]
     detail = models.retrieve_model("example")
     assert detail["metadata"]["huggingface_repo"] == "example/repo"
