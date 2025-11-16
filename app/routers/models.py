@@ -31,7 +31,7 @@ def _serialize_model(spec: ModelSpec, include_metadata: bool = False) -> dict:
 
 @router.get("/models")
 def list_available_models() -> dict:
-    data = [_serialize_model(spec) for spec in list_models()]
+    data = [_serialize_model(spec, include_metadata=True) for spec in list_models()]
     return {"object": "list", "data": data}
 
 
