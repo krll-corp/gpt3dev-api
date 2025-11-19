@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-c = OpenAI(base_url="http://localhost:5001/v1")
+c = OpenAI(base_url="https://k050506koch-gpt3-dev-api.hf.space/v1")
 
 print(c.models.list())
 
