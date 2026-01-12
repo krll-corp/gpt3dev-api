@@ -55,9 +55,29 @@ class ModelSpec:
     device: Optional[str] = None
     max_context_tokens: Optional[int] = None
     metadata: Optional[ModelMetadata] = None
+    is_instruct: bool = False
 
 
 _DEFAULT_MODELS: List[ModelSpec] = [
+    ModelSpec(
+        name="GPT4-dev-177M-1511-Instruct",
+        hf_repo="k050506koch/GPT4-dev-177M-1511-Instruct",
+        dtype="float16",
+        device="auto",
+        max_context_tokens=512,
+        is_instruct=True,
+        metadata=ModelMetadata(
+            description="Instruction-tuned GPT-4-style model fine-tuned on HuggingFaceH4/no_robots conversational dataset.",
+            parameter_count="177M",
+            training_datasets="HuggingFaceH4/no_robots",
+            training_steps="1,200 SFT steps · AdamW optimizer · cosine LR schedule · assistant-only loss masking",
+            evaluation="25.75% MMLU, 34.20% HellaSwag (author reported)",
+            notes="First instruct model. Uses Harmony-style chat formatting with apply_chat_template. Requires trust_remote_code.",
+            sources=(
+                "https://huggingface.co/k050506koch/GPT4-dev-177M-1511-Instruct",
+            ),
+        ),
+    ),
     ModelSpec(
         name="GPT4-dev-177M-1511",
         hf_repo="k050506koch/GPT4-dev-177M-1511",
@@ -230,6 +250,7 @@ def _load_registry_from_file(path: Path) -> Iterable[ModelSpec]:
                 device=entry.get("device"),
                 max_context_tokens=entry.get("max_context_tokens"),
                 metadata=metadata,
+                is_instruct=entry.get("is_instruct", False),
             )
         )
     return specs

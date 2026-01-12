@@ -220,7 +220,17 @@ def test_completions_handles_prompt_list(monkeypatch: pytest.MonkeyPatch) -> Non
     assert body["usage"]["prompt_tokens"] == len("Hello") + len("World")
 
 
-def test_chat_disabled() -> None:
+def test_chat_rejects_non_instruct_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chat completions should reject non-instruct models with a 400 error."""
+    from app.core import model_registry
+
+    # Register a non-instruct model
+    monkeypatch.setattr(
+        model_registry,
+        "_registry",
+        {"GPT3-dev": ModelSpec(name="GPT3-dev", hf_repo="k050506koch/GPT3-dev", is_instruct=False)},
+    )
+
     payload = ChatCompletionRequest.model_validate({
         "model": "GPT3-dev",
         "messages": [
@@ -230,8 +240,8 @@ def test_chat_disabled() -> None:
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(chat.create_chat_completion(payload))
-    assert exc.value.status_code == 501
-    assert exc.value.detail["code"] == "chat_completions_not_available"
+    assert exc.value.status_code == 400
+    assert "not an instruct model" in exc.value.detail["message"]
 
 
 def test_embeddings_not_implemented() -> None:

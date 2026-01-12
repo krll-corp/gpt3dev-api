@@ -10,7 +10,7 @@ pinned: false
 # GPT3dev OpenAI-Compatible API
 **more detailed documentation is hoeeted on [DeepWiki](https://deepwiki.com/krll-corp/gpt3dev-api)**
 
-A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. A `/v1/chat/completions` stub is included but currently returns a structured 501 error because the available models are completion-only.
+A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/chat/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. Chat completions are available for instruct-tuned models like `GPT4-dev-177M-1511-Instruct`.
 
 ## The API is hosted on HuggingFace Spaces:
 ```bash
@@ -112,7 +112,23 @@ curl http://localhost:7860/v1/completions \
 
 ### Chat Completions
 
-The `/v1/chat/completions` endpoint is currently disabled and returns a 501 Not Implemented error instructing clients to use `/v1/completions` instead. I don't have any chat-tuned models now, but I plan to enable this endpoint later with openai harmony - tuned models.
+The `/v1/chat/completions` endpoint is available for instruct-tuned models. Currently supported instruct models:
+
+- `GPT4-dev-177M-1511-Instruct` - Instruction-tuned GPT-4-style model fine-tuned on HuggingFaceH4/no_robots
+
+```bash
+curl http://localhost:7860/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "GPT4-dev-177M-1511-Instruct",
+        "messages": [
+          {"role": "user", "content": "Write a short welcome message for new contributors."}
+        ],
+        "max_tokens": 128
+      }'
+```
+
+Non-instruct models will return an error directing users to use `/v1/completions` instead.
 
 ### Embeddings
 

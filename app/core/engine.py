@@ -140,14 +140,14 @@ class _ModelHandle:
         logger.info("Loading tokenizer for %s", spec.hf_repo)
         tokenizer = AutoTokenizer.from_pretrained(
             spec.hf_repo,
-            use_auth_token=token,
+            token=token,
             trust_remote_code=True,
         )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
         logger.info("Tokenizer ready in %.2fs", time.perf_counter() - t0)
         model_kwargs = {
-            "use_auth_token": token,
+            "token": token,
             "trust_remote_code": True,
         }
         # Resolve preferred device early so we can adjust dtype if needed
@@ -183,11 +183,30 @@ class _ModelHandle:
             device_pref,
             " (device_map=auto)" if device_map else "",
         )
-        model = AutoModelForCausalLM.from_pretrained(
-            spec.hf_repo,
-            device_map=device_map,
-            **model_kwargs,
-        )
+        # Patch _load_pretrained_model to fix tie_weights incompatibility
+        # with newer transformers that pass missing_keys keyword argument
+        from transformers import modeling_utils
+        _orig_load_pretrained_func = modeling_utils.PreTrainedModel._load_pretrained_model.__func__
+        
+        def _patched_load_pretrained_func(cls, model, *args, **kwargs):
+            # Patch model.tie_weights to accept and ignore unexpected kwargs
+            orig_tie_weights = model.tie_weights
+            def _compat_tie_weights(*tw_args, **tw_kwargs):
+                tw_kwargs.pop("missing_keys", None)
+                tw_kwargs.pop("recompute_mapping", None)
+                return orig_tie_weights(*tw_args, **tw_kwargs)
+            model.tie_weights = _compat_tie_weights
+            return _orig_load_pretrained_func(cls, model, *args, **kwargs)
+        
+        modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_patched_load_pretrained_func)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                spec.hf_repo,
+                device_map=device_map,
+                **model_kwargs,
+            )
+        finally:
+            modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_orig_load_pretrained_func)
         logger.info("Model ready in %.2fs", time.perf_counter() - t1)
         if device_map is None:
             model = model.to(device_pref)
@@ -212,11 +231,12 @@ class _ModelHandle:
                 kwargs.pop("cache_position", None)
                 kwargs.pop("encoder_attention_mask", None)
                 kwargs.pop("attention_mask", None)
+                kwargs.pop("head_mask", None)
                 return _orig_forward(*args, **kwargs)
 
             model.forward = MethodType(_forward_compat, model)
             # Also patch submodules whose forward signatures include
-            # encoder_attention_mask to avoid duplicate passing (positional+kw)
+            # encoder_attention_mask or head_mask to avoid duplicate passing (positional+kw)
             for _, module in model.named_modules():
                 fwd = getattr(module, "forward", None)
                 if not callable(fwd):
@@ -225,7 +245,12 @@ class _ModelHandle:
                     sig = inspect.signature(fwd)
                 except Exception:
                     continue
-                if "encoder_attention_mask" not in sig.parameters:
+                # Patch modules that have problematic parameters
+                needs_patch = any(
+                    p in sig.parameters
+                    for p in ("encoder_attention_mask", "head_mask")
+                )
+                if not needs_patch:
                     continue
                 orig_fwd = fwd
 
@@ -234,6 +259,7 @@ class _ModelHandle:
                         kwargs.pop("encoder_attention_mask", None)
                         kwargs.pop("attention_mask", None)
                         kwargs.pop("cache_position", None)
+                        kwargs.pop("head_mask", None)
                         return orig(*args, **kwargs)
 
                     return _sub_forward_compat
@@ -290,6 +316,27 @@ def _apply_stop_sequences(text: str, stop_sequences: Sequence[str]) -> tuple[str
     if earliest is not None:
         return text[:earliest], "stop"
     return text, "length"
+
+
+def apply_chat_template(
+    model_name: str,
+    messages: List[dict],
+    add_generation_prompt: bool = True,
+) -> str:
+    """Apply the tokenizer's chat template to format messages for instruct models."""
+    handle = _get_handle(model_name)
+    tokenizer = handle.tokenizer
+    if hasattr(tokenizer, "apply_chat_template"):
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+        )
+    # Fallback for tokenizers without chat_template
+    from .prompting import render_chat_prompt
+    from ..schemas.chat import ChatMessage
+    chat_messages = [ChatMessage(role=m["role"], content=m["content"]) for m in messages]
+    return render_chat_prompt(chat_messages)
 
 
 def _prepare_inputs(
