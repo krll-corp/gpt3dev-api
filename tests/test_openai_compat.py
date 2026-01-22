@@ -118,9 +118,10 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.core import model_registry as model_registry_module
 from app.core.model_registry import ModelMetadata, ModelSpec
-from app.routers import chat, completions, embeddings, models
+from app.routers import chat, completions, embeddings, models, responses
 from app.schemas.chat import ChatCompletionRequest
 from app.schemas.completions import CompletionRequest
+from app.schemas.responses import ResponseRequest
 
 
 def test_list_models() -> None:
@@ -242,6 +243,69 @@ def test_chat_rejects_non_instruct_model(monkeypatch: pytest.MonkeyPatch) -> Non
         asyncio.run(chat.create_chat_completion(payload))
     assert exc.value.status_code == 400
     assert "not an instruct model" in exc.value.detail["message"]
+
+
+def test_responses_string_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyResult:
+        prompt_tokens = 4
+        completions = [type("C", (), {"text": "Hello", "tokens": 2, "finish_reason": "stop"})()]
+
+    def fake_generate(*args, **kwargs):
+        return DummyResult()
+
+    monkeypatch.setattr("app.routers.responses.engine.generate", fake_generate)
+    monkeypatch.setattr(
+        "app.routers.responses.get_model_spec",
+        lambda model: ModelSpec(name=model, hf_repo="dummy/repo", is_instruct=False),
+    )
+    payload = ResponseRequest.model_validate({
+        "model": "GPT3-dev",
+        "input": "Hi",
+    })
+    response = asyncio.run(responses.create_response(payload))
+    body = response.model_dump()
+    assert body["object"] == "response"
+    assert body["output"][0]["role"] == "assistant"
+    assert body["output"][0]["content"][0]["text"] == "Hello"
+    assert body["usage"]["input_tokens"] == 4
+    assert body["usage"]["output_tokens"] == 2
+
+
+def test_responses_instruct_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyResult:
+        prompt_tokens = 3
+        completions = [type("C", (), {"text": "Sure", "tokens": 1, "finish_reason": "stop"})()]
+
+    recorded_prompts: list[str] = []
+
+    def fake_generate(*args, **kwargs):
+        recorded_prompts.append(args[1])
+        return DummyResult()
+
+    monkeypatch.setattr("app.routers.responses.engine.generate", fake_generate)
+    monkeypatch.setattr(
+        "app.routers.responses.engine.apply_chat_template",
+        lambda model, messages: "formatted prompt",
+    )
+    monkeypatch.setattr(
+        "app.routers.responses.get_model_spec",
+        lambda model: ModelSpec(name=model, hf_repo="dummy/instruct", is_instruct=True),
+    )
+    payload = ResponseRequest.model_validate({
+        "model": "GPT4-dev-177M-1511-Instruct",
+        "input": [{"role": "user", "content": "Hi"}],
+    })
+    response = asyncio.run(responses.create_response(payload))
+    body = response.model_dump()
+    assert recorded_prompts == ["formatted prompt"]
+    assert body["output"][0]["content"][0]["text"] == "Sure"
+    assert body["usage"]["total_tokens"] == 4
+
+
+def test_openai_client_responses_create(monkeypatch: pytest.MonkeyPatch) -> None:
+    openai_module = pytest.importorskip("openai")
+    OpenAI = openai_module.OpenAI
+    pytest.skip("OpenAI client test moved to live API coverage.")
 
 
 def test_embeddings_not_implemented() -> None:

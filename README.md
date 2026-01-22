@@ -10,7 +10,7 @@ pinned: false
 # GPT3dev OpenAI-Compatible API
 **more detailed documentation is hoeeted on [DeepWiki](https://deepwiki.com/krll-corp/gpt3dev-api)**
 
-A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/chat/completions`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. Chat completions are available for instruct-tuned models like `GPT4-dev-177M-1511-Instruct`.
+A production-ready FastAPI server that mirrors the OpenAI REST API surface while proxying requests to Hugging Face causal language models. The service implements the `/v1/completions`, `/v1/chat/completions`, `/v1/responses`, `/v1/models`, and `/v1/embeddings` endpoints with full support for streaming Server-Sent Events (SSE) and OpenAI-style usage accounting. Chat completions are available for instruct-tuned models like `GPT4-dev-177M-1511-Instruct`.
 
 ## The API is hosted on HuggingFace Spaces:
 ```bash
@@ -19,7 +19,7 @@ https://k050506koch-gpt3-dev-api.hf.space
 
 ## Features
 
-- ✅ Drop-in compatible request/response schemas for OpenAI text completions.
+- ✅ Drop-in compatible request/response schemas for OpenAI text completions and responses.
 - ✅ Streaming responses (`stream=true`) that emit OpenAI-formatted SSE frames ending with `data: [DONE]`.
 - ✅ Configurable Hugging Face model registry with lazy loading, shared model cache, and automatic device placement.
 - ✅ Prompt token counting via `tiktoken` when available (falls back to Hugging Face tokenizers).
@@ -129,6 +129,18 @@ curl http://localhost:7860/v1/chat/completions \
 ```
 
 Non-instruct models will return an error directing users to use `/v1/completions` instead.
+
+### Responses API
+
+```bash
+curl http://localhost:7860/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "GPT4-dev-177M-1511-Instruct",
+        "input": "Summarize the key points in two sentences.",
+        "max_output_tokens": 128
+      }'
+```
 
 ### Embeddings
 

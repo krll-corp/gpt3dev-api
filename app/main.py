@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from .core.settings import get_settings
-from .routers import chat, completions, embeddings, models
+from .routers import chat, completions, embeddings, models, responses
 
 
 def configure_logging(level: str) -> None:
@@ -124,6 +124,7 @@ if settings.cors_allow_origins:
 app.include_router(models.router)
 app.include_router(completions.router)
 app.include_router(chat.router)
+app.include_router(responses.router)
 app.include_router(embeddings.router)
 
 
