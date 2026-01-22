@@ -26,6 +26,19 @@ def _get_models(timeout: float = 10.0) -> Set[str]:
 
 
 @pytest.mark.skipif(not RUN_LIVE, reason="set RUN_LIVE_API_TESTS=1 to run live API tests")
+def test_responses_openai_client() -> None:
+    openai_module = pytest.importorskip("openai")
+    OpenAI = openai_module.OpenAI
+    model = "GPT4-dev-177M-1511-Instruct"
+    available = _get_models()
+    if model not in available:
+        pytest.skip(f"model {model} not available on server; available={sorted(available)}")
+    client = OpenAI(api_key="test", base_url=f"{BASE_URL}/v1")
+    response = client.responses.create(model=model, input="Say hello in one sentence.")
+    assert response.output[0].content[0].text
+
+
+@pytest.mark.skipif(not RUN_LIVE, reason="set RUN_LIVE_API_TESTS=1 to run live API tests")
 @pytest.mark.parametrize("model", ["GPT-2", "GPT3-dev-350m-2805"])  # adjust names as available
 def test_completion_basic(model: str) -> None:
     available = _get_models()
@@ -51,4 +64,3 @@ def test_completion_basic(model: str) -> None:
     # The completion can be empty for some models with temperature=0, but should be a string
     usage = body.get("usage") or {}
     assert "total_tokens" in usage
-
