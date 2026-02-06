@@ -24,28 +24,82 @@ def _unwrap_bound_callable(callable_obj):
     return getattr(callable_obj, "__func__", callable_obj)
 
 
-def _install_tie_weights_compat_patch(model) -> Callable[[], None]:
-    """Patch model class tie_weights to ignore newer unexpected kwargs."""
+def _filter_supported_kwargs(func, kwargs: dict) -> dict:
+    """Drop kwargs that are not accepted by ``func`` when possible."""
+    if not kwargs:
+        return kwargs
+    try:
+        signature = inspect.signature(func)
+    except Exception:  # pragma: no cover - defensive for exotic callables
+        return kwargs
+
+    supports_var_kwargs = any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in signature.parameters.values()
+    )
+    if supports_var_kwargs:
+        return kwargs
+
+    supported_kwargs = {
+        name
+        for name, param in signature.parameters.items()
+        if name != "self"
+        and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    return {key: value for key, value in kwargs.items() if key in supported_kwargs}
+
+
+def _install_tie_weights_compat_patch(
+    model,
+    *,
+    extra_classes: Sequence[type] = (),
+) -> Callable[[], None]:
+    """Patch model class tie_weights to ignore unsupported kwargs safely."""
     if not hasattr(model, "tie_weights"):
         return lambda: None
 
-    model_cls = model.__class__
-    had_local_attr = "tie_weights" in model_cls.__dict__
-    original_attr = model_cls.__dict__.get("tie_weights")
-    original_callable = _unwrap_bound_callable(getattr(model_cls, "tie_weights"))
+    candidates = [model.__class__, *extra_classes]
+    classes_to_patch: list[type] = []
+    seen: set[type] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, type):
+            continue
+        for cls in candidate.mro():
+            if cls in seen:
+                continue
+            seen.add(cls)
+            if "tie_weights" in cls.__dict__:
+                classes_to_patch.append(cls)
 
-    def _compat_tie_weights(self, *args, **kwargs):
-        kwargs.pop("missing_keys", None)
-        kwargs.pop("recompute_mapping", None)
-        return original_callable(self, *args, **kwargs)
+    if not classes_to_patch:
+        return lambda: None
 
-    setattr(model_cls, "tie_weights", _compat_tie_weights)
+    restore_stack: list[tuple[type, object]] = []
+    for cls in classes_to_patch:
+        original_attr = cls.__dict__["tie_weights"]
+        original_callable = _unwrap_bound_callable(getattr(cls, "tie_weights"))
+
+        def _make_compat(callable_impl):
+            def _compat_tie_weights(self, *args, **kwargs):
+                filtered_kwargs = _filter_supported_kwargs(callable_impl, kwargs)
+                try:
+                    return callable_impl(self, *args, **filtered_kwargs)
+                except TypeError as exc:
+                    if kwargs and "unexpected keyword argument" in str(exc):
+                        return callable_impl(self, *args)
+                    raise
+
+            return _compat_tie_weights
+
+        setattr(cls, "tie_weights", _make_compat(original_callable))
+        restore_stack.append((cls, original_attr))
 
     def _restore() -> None:
-        if had_local_attr:
-            setattr(model_cls, "tie_weights", original_attr)
-        else:
-            delattr(model_cls, "tie_weights")
+        for cls, original_attr in reversed(restore_stack):
+            setattr(cls, "tie_weights", original_attr)
 
     return _restore
 
@@ -226,7 +280,10 @@ class _ModelHandle:
         
         def _patched_load_pretrained_func(cls, model, *args, **kwargs):
             # Patch tie_weights to absorb kwargs passed by newer transformers.
-            restore_tie_weights = _install_tie_weights_compat_patch(model)
+            restore_tie_weights = _install_tie_weights_compat_patch(
+                model,
+                extra_classes=(cls,),
+            )
             try:
                 return _orig_load_pretrained_func(cls, model, *args, **kwargs)
             finally:

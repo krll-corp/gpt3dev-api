@@ -132,3 +132,32 @@ def test_install_tie_weights_compat_patch_strips_unexpected_kwargs() -> None:
 
     with pytest.raises(TypeError):
         demo.tie_weights(missing_keys=set(), recompute_mapping=False)
+
+
+def test_install_tie_weights_compat_patch_preserves_supported_kwargs() -> None:
+    class Demo:
+        def tie_weights(self, keep=None):  # pragma: no cover - shape-only test
+            return keep
+
+    demo = Demo()
+    restore = engine._install_tie_weights_compat_patch(demo)
+    try:
+        assert demo.tie_weights(keep="ok", missing_keys=set(), recompute_mapping=False) == "ok"
+    finally:
+        restore()
+
+
+def test_install_tie_weights_compat_patch_covers_class_dispatch() -> None:
+    class Base:
+        def tie_weights(self):  # pragma: no cover - shape-only test
+            return "ok"
+
+    class Child(Base):
+        pass
+
+    instance = Child()
+    restore = engine._install_tie_weights_compat_patch(instance, extra_classes=(Base,))
+    try:
+        assert Base.tie_weights(instance, missing_keys=set(), recompute_mapping=False) == "ok"
+    finally:
+        restore()
