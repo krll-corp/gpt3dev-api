@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from app.core import engine, tokens
 from app.core.prompting import DEFAULT_SYSTEM_PROMPT, render_chat_prompt
 from app.schemas.chat import ChatMessage
@@ -110,3 +112,23 @@ def test_unwrap_bound_callable_extracts_underlying_method_function() -> None:
     unwrapped = engine._unwrap_bound_callable(Demo.loader)
     assert callable(unwrapped)
     assert unwrapped.__name__ == "loader"
+
+
+def test_install_tie_weights_compat_patch_strips_unexpected_kwargs() -> None:
+    class Demo:
+        def tie_weights(self):  # pragma: no cover - shape-only test
+            return "ok"
+
+    demo = Demo()
+
+    with pytest.raises(TypeError):
+        demo.tie_weights(missing_keys=set(), recompute_mapping=False)
+
+    restore = engine._install_tie_weights_compat_patch(demo)
+    try:
+        assert demo.tie_weights(missing_keys=set(), recompute_mapping=False) == "ok"
+    finally:
+        restore()
+
+    with pytest.raises(TypeError):
+        demo.tie_weights(missing_keys=set(), recompute_mapping=False)

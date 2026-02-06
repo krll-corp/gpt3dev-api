@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 import inspect
 from threading import Lock, Thread
-from typing import Generator, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Generator, Iterable, List, Optional, Sequence, Tuple
 
 # Heavy libraries (torch, transformers) are imported lazily in functions
 # to keep application startup snappy.
@@ -22,6 +22,32 @@ logger = logging.getLogger(__name__)
 def _unwrap_bound_callable(callable_obj):
     """Return a plain callable from either bound methods or plain functions."""
     return getattr(callable_obj, "__func__", callable_obj)
+
+
+def _install_tie_weights_compat_patch(model) -> Callable[[], None]:
+    """Patch model class tie_weights to ignore newer unexpected kwargs."""
+    if not hasattr(model, "tie_weights"):
+        return lambda: None
+
+    model_cls = model.__class__
+    had_local_attr = "tie_weights" in model_cls.__dict__
+    original_attr = model_cls.__dict__.get("tie_weights")
+    original_callable = _unwrap_bound_callable(getattr(model_cls, "tie_weights"))
+
+    def _compat_tie_weights(self, *args, **kwargs):
+        kwargs.pop("missing_keys", None)
+        kwargs.pop("recompute_mapping", None)
+        return original_callable(self, *args, **kwargs)
+
+    setattr(model_cls, "tie_weights", _compat_tie_weights)
+
+    def _restore() -> None:
+        if had_local_attr:
+            setattr(model_cls, "tie_weights", original_attr)
+        else:
+            delattr(model_cls, "tie_weights")
+
+    return _restore
 
 
 def _lazy_import_torch():  # pragma: no cover - indirection
@@ -199,17 +225,12 @@ class _ModelHandle:
             _restore_loader_attr = _orig_load_pretrained_func
         
         def _patched_load_pretrained_func(cls, model, *args, **kwargs):
-            # Patch model.tie_weights to accept and ignore unexpected kwargs
-            orig_tie_weights = model.tie_weights
-            def _compat_tie_weights(*tw_args, **tw_kwargs):
-                tw_kwargs.pop("missing_keys", None)
-                tw_kwargs.pop("recompute_mapping", None)
-                return orig_tie_weights(*tw_args, **tw_kwargs)
-            model.tie_weights = _compat_tie_weights
+            # Patch tie_weights to absorb kwargs passed by newer transformers.
+            restore_tie_weights = _install_tie_weights_compat_patch(model)
             try:
                 return _orig_load_pretrained_func(cls, model, *args, **kwargs)
             finally:
-                model.tie_weights = orig_tie_weights
+                restore_tie_weights()
         
         modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_patched_load_pretrained_func)
         try:
