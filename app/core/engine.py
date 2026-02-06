@@ -19,6 +19,11 @@ from .tokens import count_tokens
 logger = logging.getLogger(__name__)
 
 
+def _unwrap_bound_callable(callable_obj):
+    """Return a plain callable from either bound methods or plain functions."""
+    return getattr(callable_obj, "__func__", callable_obj)
+
+
 def _lazy_import_torch():  # pragma: no cover - indirection
     import torch
 
@@ -186,7 +191,12 @@ class _ModelHandle:
         # Patch _load_pretrained_model to fix tie_weights incompatibility
         # with newer transformers that pass missing_keys keyword argument
         from transformers import modeling_utils
-        _orig_load_pretrained_func = modeling_utils.PreTrainedModel._load_pretrained_model.__func__
+        _orig_load_pretrained = modeling_utils.PreTrainedModel._load_pretrained_model
+        _orig_load_pretrained_func = _unwrap_bound_callable(_orig_load_pretrained)
+        if hasattr(_orig_load_pretrained, "__func__"):
+            _restore_loader_attr = classmethod(_orig_load_pretrained_func)
+        else:
+            _restore_loader_attr = _orig_load_pretrained_func
         
         def _patched_load_pretrained_func(cls, model, *args, **kwargs):
             # Patch model.tie_weights to accept and ignore unexpected kwargs
@@ -196,7 +206,10 @@ class _ModelHandle:
                 tw_kwargs.pop("recompute_mapping", None)
                 return orig_tie_weights(*tw_args, **tw_kwargs)
             model.tie_weights = _compat_tie_weights
-            return _orig_load_pretrained_func(cls, model, *args, **kwargs)
+            try:
+                return _orig_load_pretrained_func(cls, model, *args, **kwargs)
+            finally:
+                model.tie_weights = orig_tie_weights
         
         modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_patched_load_pretrained_func)
         try:
@@ -206,7 +219,7 @@ class _ModelHandle:
                 **model_kwargs,
             )
         finally:
-            modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_orig_load_pretrained_func)
+            modeling_utils.PreTrainedModel._load_pretrained_model = _restore_loader_attr
         logger.info("Model ready in %.2fs", time.perf_counter() - t1)
         if device_map is None:
             model = model.to(device_pref)

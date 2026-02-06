@@ -92,3 +92,21 @@ def test_pad_token_id_prefers_pad_then_eos_then_zero() -> None:
     assert engine._pad_token_id_or_default(with_pad) == 9
     assert engine._pad_token_id_or_default(with_eos_only) == 7
     assert engine._pad_token_id_or_default(with_none) == 0
+
+
+def test_unwrap_bound_callable_returns_plain_function() -> None:
+    def loader(cls, model):  # pragma: no cover - shape-only test
+        return cls, model
+
+    assert engine._unwrap_bound_callable(loader) is loader
+
+
+def test_unwrap_bound_callable_extracts_underlying_method_function() -> None:
+    class Demo:
+        @classmethod
+        def loader(cls, model):  # pragma: no cover - shape-only test
+            return cls, model
+
+    unwrapped = engine._unwrap_bound_callable(Demo.loader)
+    assert callable(unwrapped)
+    assert unwrapped.__name__ == "loader"
