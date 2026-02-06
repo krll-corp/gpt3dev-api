@@ -15,8 +15,18 @@ import pytest
 import httpx
 
 
+DEFAULT_BASE_URL = "https://k050506koch-gpt3-dev-api.hf.space"
+
+
+def _normalize_base_url(raw_base_url: str) -> str:
+    base_url = raw_base_url.rstrip("/")
+    if base_url.endswith("/v1"):
+        base_url = base_url[:-3]
+    return base_url
+
+
 RUN_LIVE = os.environ.get("RUN_LIVE_API_TESTS") == "1"
-BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:5001")
+BASE_URL = _normalize_base_url(os.environ.get("API_BASE_URL", DEFAULT_BASE_URL))
 VERIFY_SSL = os.environ.get("API_VERIFY_SSL", "1") != "0"
 PROMPT = "he is a doctor. His main goal is"
 
@@ -35,11 +45,17 @@ CANDIDATES = [
 
 @lru_cache(maxsize=1)
 def _get_models(timeout: float = 10.0) -> Set[str]:
-    with httpx.Client(timeout=timeout, verify=VERIFY_SSL) as client:
-        resp = client.get(f"{BASE_URL}/v1/models")
-        resp.raise_for_status()
-        data = resp.json()
-        models = {item.get("id") for item in (data.get("data") or [])}
+    try:
+        with httpx.Client(timeout=timeout, verify=VERIFY_SSL) as client:
+            resp = client.get(f"{BASE_URL}/v1/models")
+            resp.raise_for_status()
+            data = resp.json()
+            models = {item.get("id") for item in (data.get("data") or [])}
+    except httpx.HTTPError as exc:
+        pytest.fail(
+            f"Unable to reach live API at {BASE_URL}/v1/models: {exc}. "
+            "Set API_BASE_URL to your server root URL (with or without '/v1')."
+        )
 
     if not models:
         pytest.fail(f"/v1/models returned no data from {BASE_URL}")
@@ -95,4 +111,3 @@ def test_completion_for_models(model: str) -> None:
     warnings.warn(message, stacklevel=1)
     usage = body.get("usage") or {}
     assert "total_tokens" in usage
-

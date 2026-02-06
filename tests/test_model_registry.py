@@ -115,3 +115,61 @@ def test_custom_registry_can_extend_defaults(reset_registry, tmp_path: Path):
     names = {spec.name for spec in model_registry.list_models()}
     assert "Tiny" in names
     assert "GPT3-dev" in names
+
+
+def test_registry_loads_yaml_when_json_parse_fails(
+    reset_registry,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    registry_path = tmp_path / "registry.yaml"
+    registry_path.write_text("- name: Tiny\n  hf_repo: dummy/tiny\n")
+
+    def fake_safe_load(data: str) -> list[dict[str, str]]:
+        assert "name: Tiny" in data
+        return [{"name": "Tiny", "hf_repo": "dummy/tiny"}]
+
+    monkeypatch.setattr(model_registry.yaml, "safe_load", fake_safe_load)
+
+    reset_registry(registry_path=str(registry_path))
+    names = {spec.name for spec in model_registry.list_models()}
+    assert names == {"Tiny"}
+
+
+def test_registry_rejects_non_list_file_payload(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps({"name": "Tiny", "hf_repo": "dummy/tiny"}))
+
+    reset_registry(registry_path=str(registry_path))
+    with pytest.raises(ValueError, match="must contain a list"):
+        model_registry.list_models()
+
+
+def test_registry_rejects_non_object_entries(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps(["not-an-object"]))
+
+    reset_registry(registry_path=str(registry_path))
+    with pytest.raises(ValueError, match="entries must be objects"):
+        model_registry.list_models()
+
+
+def test_registry_path_missing_raises_file_not_found(reset_registry, tmp_path: Path):
+    reset_registry(registry_path=str(tmp_path / "missing.json"))
+
+    with pytest.raises(FileNotFoundError, match="MODEL_REGISTRY_PATH not found"):
+        model_registry.list_models()
+
+
+def test_file_registry_overrides_default_model_with_same_name(reset_registry, tmp_path: Path):
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(
+        json.dumps([{"name": "GPT3-dev", "hf_repo": "custom/override"}])
+    )
+
+    reset_registry(registry_path=str(registry_path), include_defaults=True)
+
+    spec = model_registry.get_model_spec("GPT3-dev")
+    names = {item.name for item in model_registry.list_models()}
+    assert "GPT-2" in names
+    assert spec.hf_repo == "custom/override"

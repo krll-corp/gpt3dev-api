@@ -302,12 +302,6 @@ def test_responses_instruct_messages(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["usage"]["total_tokens"] == 4
 
 
-def test_openai_client_responses_create(monkeypatch: pytest.MonkeyPatch) -> None:
-    openai_module = pytest.importorskip("openai")
-    OpenAI = openai_module.OpenAI
-    pytest.skip("OpenAI client test moved to live API coverage.")
-
-
 def test_embeddings_not_implemented() -> None:
     with pytest.raises(HTTPException) as exc:
         asyncio.run(embeddings.create_embeddings())
