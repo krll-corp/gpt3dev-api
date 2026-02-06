@@ -52,6 +52,53 @@ def _filter_supported_kwargs(func, kwargs: dict) -> dict:
     return {key: value for key, value in kwargs.items() if key in supported_kwargs}
 
 
+def _is_tie_weights_unexpected_kwarg_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "tie_weights" in message and "unexpected keyword argument" in message
+
+
+def _iter_subclasses(cls: type) -> Generator[type, None, None]:
+    for sub in cls.__subclasses__():
+        yield sub
+        yield from _iter_subclasses(sub)
+
+
+def _install_global_tie_weights_compat_patch() -> Callable[[], None]:
+    """Patch loaded PreTrainedModel subclasses to absorb unsupported kwargs."""
+    from transformers import modeling_utils
+
+    base_cls = modeling_utils.PreTrainedModel
+    classes = [base_cls, *_iter_subclasses(base_cls)]
+    restore_stack: list[tuple[type, object]] = []
+
+    for cls in classes:
+        if "tie_weights" not in cls.__dict__:
+            continue
+        original_attr = cls.__dict__["tie_weights"]
+        original_callable = _unwrap_bound_callable(getattr(cls, "tie_weights"))
+
+        def _make_compat(callable_impl):
+            def _compat_tie_weights(self, *args, **kwargs):
+                filtered_kwargs = _filter_supported_kwargs(callable_impl, kwargs)
+                try:
+                    return callable_impl(self, *args, **filtered_kwargs)
+                except TypeError as error:
+                    if kwargs and "unexpected keyword argument" in str(error):
+                        return callable_impl(self, *args)
+                    raise
+
+            return _compat_tie_weights
+
+        setattr(cls, "tie_weights", _make_compat(original_callable))
+        restore_stack.append((cls, original_attr))
+
+    def _restore() -> None:
+        for cls, original_attr in reversed(restore_stack):
+            setattr(cls, "tie_weights", original_attr)
+
+    return _restore
+
+
 def _install_tie_weights_compat_patch(
     model,
     *,
@@ -291,11 +338,29 @@ class _ModelHandle:
         
         modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_patched_load_pretrained_func)
         try:
-            model = AutoModelForCausalLM.from_pretrained(
-                spec.hf_repo,
-                device_map=device_map,
-                **model_kwargs,
-            )
+            try:
+                model = AutoModelForCausalLM.from_pretrained(
+                    spec.hf_repo,
+                    device_map=device_map,
+                    **model_kwargs,
+                )
+            except TypeError as exc:
+                if not _is_tie_weights_unexpected_kwarg_error(exc):
+                    raise
+                logger.warning(
+                    "Retrying model load for %s after tie_weights kwarg mismatch: %s",
+                    spec.hf_repo,
+                    exc,
+                )
+                restore_global_tie_weights = _install_global_tie_weights_compat_patch()
+                try:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        spec.hf_repo,
+                        device_map=device_map,
+                        **model_kwargs,
+                    )
+                finally:
+                    restore_global_tie_weights()
         finally:
             modeling_utils.PreTrainedModel._load_pretrained_model = _restore_loader_attr
         logger.info("Model ready in %.2fs", time.perf_counter() - t1)
