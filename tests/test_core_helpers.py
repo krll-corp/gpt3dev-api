@@ -161,3 +161,46 @@ def test_install_tie_weights_compat_patch_covers_class_dispatch() -> None:
         assert Base.tie_weights(instance, missing_keys=set(), recompute_mapping=False) == "ok"
     finally:
         restore()
+
+
+def test_install_loader_tie_weights_patch_handles_plain_function_descriptor() -> None:
+    class DemoModel:
+        def tie_weights(self):  # pragma: no cover - shape-only test
+            return "ok"
+
+    class DummyLoader:
+        def _load_pretrained_model(model, state, files, name):  # noqa: N805
+            return model.tie_weights(missing_keys=set(), recompute_mapping=False), name
+
+    model = DemoModel()
+    with pytest.raises(TypeError):
+        model.tie_weights(missing_keys=set(), recompute_mapping=False)
+
+    restore_loader = engine._install_loader_tie_weights_patch(DummyLoader)
+    try:
+        result = DummyLoader._load_pretrained_model(model, None, None, "demo")
+        assert result == ("ok", "demo")
+    finally:
+        restore_loader()
+
+    with pytest.raises(TypeError):
+        model.tie_weights(missing_keys=set(), recompute_mapping=False)
+
+
+def test_install_loader_tie_weights_patch_handles_classmethod_descriptor() -> None:
+    class DemoModel:
+        def tie_weights(self):  # pragma: no cover - shape-only test
+            return "ok"
+
+    class DummyLoader:
+        @classmethod
+        def _load_pretrained_model(cls, model, state, files, name):  # noqa: N805
+            return cls.__name__, model.tie_weights(recompute_mapping=False), name
+
+    model = DemoModel()
+    restore_loader = engine._install_loader_tie_weights_patch(DummyLoader)
+    try:
+        result = DummyLoader._load_pretrained_model(model, None, None, "demo")
+        assert result == ("DummyLoader", "ok", "demo")
+    finally:
+        restore_loader()

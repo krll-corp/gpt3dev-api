@@ -57,6 +57,60 @@ def _is_tie_weights_unexpected_kwarg_error(exc: Exception) -> bool:
     return "tie_weights" in message and "unexpected keyword argument" in message
 
 
+def _install_loader_tie_weights_patch(pretrained_model_cls: type) -> Callable[[], None]:
+    """Wrap _load_pretrained_model while preserving its descriptor type."""
+    original_attr = pretrained_model_cls.__dict__.get("_load_pretrained_model")
+    if original_attr is None:
+        return lambda: None
+
+    if isinstance(original_attr, classmethod):
+        original_callable = original_attr.__func__
+
+        def _patched_loader(cls, *args, **kwargs):
+            model = args[0] if args else kwargs.get("model")
+            restore_tie_weights = _install_tie_weights_compat_patch(
+                model,
+                extra_classes=(cls,),
+            )
+            try:
+                return original_callable(cls, *args, **kwargs)
+            finally:
+                restore_tie_weights()
+
+        patched_attr = classmethod(_patched_loader)
+    elif isinstance(original_attr, staticmethod):
+        original_callable = original_attr.__func__
+
+        def _patched_loader(*args, **kwargs):
+            model = args[0] if args else kwargs.get("model")
+            restore_tie_weights = _install_tie_weights_compat_patch(model)
+            try:
+                return original_callable(*args, **kwargs)
+            finally:
+                restore_tie_weights()
+
+        patched_attr = staticmethod(_patched_loader)
+    else:
+        original_callable = original_attr
+
+        def _patched_loader(*args, **kwargs):
+            model = args[0] if args else kwargs.get("model")
+            restore_tie_weights = _install_tie_weights_compat_patch(model)
+            try:
+                return original_callable(*args, **kwargs)
+            finally:
+                restore_tie_weights()
+
+        patched_attr = _patched_loader
+
+    setattr(pretrained_model_cls, "_load_pretrained_model", patched_attr)
+
+    def _restore() -> None:
+        setattr(pretrained_model_cls, "_load_pretrained_model", original_attr)
+
+    return _restore
+
+
 def _iter_subclasses(cls: type) -> Generator[type, None, None]:
     for sub in cls.__subclasses__():
         yield sub
@@ -315,28 +369,12 @@ class _ModelHandle:
             device_pref,
             " (device_map=auto)" if device_map else "",
         )
-        # Patch _load_pretrained_model to fix tie_weights incompatibility
-        # with newer transformers that pass missing_keys keyword argument
+        # Patch _load_pretrained_model to inject tie_weights compatibility
+        # while preserving whatever descriptor type transformers currently uses.
         from transformers import modeling_utils
-        _orig_load_pretrained = modeling_utils.PreTrainedModel._load_pretrained_model
-        _orig_load_pretrained_func = _unwrap_bound_callable(_orig_load_pretrained)
-        if hasattr(_orig_load_pretrained, "__func__"):
-            _restore_loader_attr = classmethod(_orig_load_pretrained_func)
-        else:
-            _restore_loader_attr = _orig_load_pretrained_func
-        
-        def _patched_load_pretrained_func(cls, model, *args, **kwargs):
-            # Patch tie_weights to absorb kwargs passed by newer transformers.
-            restore_tie_weights = _install_tie_weights_compat_patch(
-                model,
-                extra_classes=(cls,),
-            )
-            try:
-                return _orig_load_pretrained_func(cls, model, *args, **kwargs)
-            finally:
-                restore_tie_weights()
-        
-        modeling_utils.PreTrainedModel._load_pretrained_model = classmethod(_patched_load_pretrained_func)
+        restore_loader_patch = _install_loader_tie_weights_patch(
+            modeling_utils.PreTrainedModel
+        )
         try:
             try:
                 model = AutoModelForCausalLM.from_pretrained(
@@ -362,7 +400,7 @@ class _ModelHandle:
                 finally:
                     restore_global_tie_weights()
         finally:
-            modeling_utils.PreTrainedModel._load_pretrained_model = _restore_loader_attr
+            restore_loader_patch()
         logger.info("Model ready in %.2fs", time.perf_counter() - t1)
         if device_map is None:
             model = model.to(device_pref)
