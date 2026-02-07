@@ -1,9 +1,15 @@
 """Unit tests for prompt/token/engine helper utilities."""
 from __future__ import annotations
 
+import sys
 import types
+from pathlib import Path
 
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.core import engine, tokens
 from app.core.prompting import DEFAULT_SYSTEM_PROMPT, render_chat_prompt
