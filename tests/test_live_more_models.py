@@ -33,6 +33,8 @@ PROMPT = "he is a doctor. His main goal is"
 # Candidate models to probe. Each test checks /v1/models first and will
 # skip if the model id is not listed by the server.
 CANDIDATES = [
+    "GPT4-dev-177M-1511",
+    "GPT4-dev-177M-1511-Instruct",
     "GPT3-dev-350m-2805",
     "GPT3-dev-125m-0104",
     "GPT3-dev-125m-1202",
